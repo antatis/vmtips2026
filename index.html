@@ -364,6 +364,7 @@ async function supabase(method, path, body) {
 async function loadSnapshots() {
   try {
     snapshots = await supabase('GET', 'snapshots?order=created_at.asc&select=id,label,created_at,scores') || [];
+    console.log('Snapshots:', JSON.stringify(snapshots[snapshots.length-1]));
     updateFooter();
     return snapshots;
   } catch(e) { setStatus('Kunde inte hämta historik: ' + e.message, true); return []; }
@@ -373,8 +374,12 @@ function updateFooter() {
   if (!el) return;
   if (!snapshots.length) { el.textContent = ''; return; }
   const last = snapshots[snapshots.length - 1];
-  const d = new Date(last.created_at);
-  el.textContent = 'Senast uppdaterad: ' + d.toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' });
+  if (last.created_at) {
+    const d = new Date(last.created_at);
+    el.textContent = 'Senast uppdaterad: ' + d.toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' });
+  } else {
+    el.textContent = 'Senast uppdaterad: ' + last.label;
+  }
 }
 async function saveSnapshot() {
   if (!currentData) { setStatus('Ladda upp Excel-filen först.', true); return; }
