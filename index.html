@@ -273,6 +273,16 @@
   
 </header>
 
+
+<div id="countdownBand" style="background: linear-gradient(90deg, rgba(0,106,167,0.4) 0%, rgba(0,26,46,0.6) 50%, rgba(0,106,167,0.4) 100%); border-bottom: 1px solid var(--border); padding: 1rem 2rem; text-align: center;">
+  <p style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 6px;">VM 2026 startar om</p>
+  <div style="display: flex; justify-content: center; gap: 1.5rem;">
+    <div><span id="cdDays" style="font-family: 'Bebas Neue', sans-serif; font-size: 3rem; color: var(--yellow); line-height: 1;">0</span><p style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px;">Dagar</p></div>
+    <div><span id="cdHours" style="font-family: 'Bebas Neue', sans-serif; font-size: 3rem; color: var(--yellow); line-height: 1;">0</span><p style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px;">Timmar</p></div>
+    <div><span id="cdMins" style="font-family: 'Bebas Neue', sans-serif; font-size: 3rem; color: var(--yellow); line-height: 1;">0</span><p style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px;">Minuter</p></div>
+    <div><span id="cdSecs" style="font-family: 'Bebas Neue', sans-serif; font-size: 3rem; color: var(--yellow); line-height: 1;">0</span><p style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px;">Sekunder</p></div>
+  </div>
+</div>
 <div class="container">
 
   <div class="upload-zone" id="uploadZone">
@@ -549,6 +559,27 @@ document.getElementById('fileInput').addEventListener('change', function(e) {
   });
 });
 init();
+
+(function() {
+  const target = new Date('2026-06-11T19:00:00');
+  function tick() {
+    const band = document.getElementById('countdownBand');
+    if (!band) return;
+    const now = new Date();
+    const diff = target - now;
+    if (diff <= 0) { band.style.display = 'none'; return; }
+    const d = Math.floor(diff / 86400000);
+    const h = Math.floor((diff % 86400000) / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    document.getElementById('cdDays').textContent = d;
+    document.getElementById('cdHours').textContent = String(h).padStart(2,'0');
+    document.getElementById('cdMins').textContent = String(m).padStart(2,'0');
+    document.getElementById('cdSecs').textContent = String(s).padStart(2,'0');
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
 </script>
 </body>
 </html>
