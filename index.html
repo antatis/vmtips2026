@@ -44,7 +44,7 @@
     z-index: 0;
     pointer-events: none;
   }
-  header, .container, footer { position: relative; z-index: 1; }
+  header, .container, footer, #countdownBand { position: relative; z-index: 1; }
   header {
     border-bottom: 2px solid var(--yellow);
     padding: 1.25rem 2rem;
@@ -274,13 +274,16 @@
 </header>
 
 
-<div id="countdownBand" style="background: linear-gradient(90deg, rgba(0,106,167,0.4) 0%, rgba(0,26,46,0.6) 50%, rgba(0,106,167,0.4) 100%); border-bottom: 1px solid var(--border); padding: 1rem 2rem; text-align: center;">
-  <p style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 6px;">VM 2026 startar om</p>
-  <div style="display: flex; justify-content: center; gap: 1.5rem;">
-    <div><span id="cdDays" style="font-family: 'Bebas Neue', sans-serif; font-size: 3rem; color: var(--yellow); line-height: 1;">0</span><p style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px;">Dagar</p></div>
-    <div><span id="cdHours" style="font-family: 'Bebas Neue', sans-serif; font-size: 3rem; color: var(--yellow); line-height: 1;">0</span><p style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px;">Timmar</p></div>
-    <div><span id="cdMins" style="font-family: 'Bebas Neue', sans-serif; font-size: 3rem; color: var(--yellow); line-height: 1;">0</span><p style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px;">Minuter</p></div>
-    <div><span id="cdSecs" style="font-family: 'Bebas Neue', sans-serif; font-size: 3rem; color: var(--yellow); line-height: 1;">0</span><p style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px;">Sekunder</p></div>
+<div id="countdownBand" style="background: linear-gradient(90deg, rgba(0,106,167,0.35) 0%, rgba(0,26,46,0.75) 50%, rgba(0,106,167,0.35) 100%); border-bottom: 2px solid var(--yellow); padding: 1.25rem 2rem; text-align: center;">
+  <p style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; color: rgba(255,255,255,0.8); margin-bottom: 10px;">VM 2026 startar om</p>
+  <div style="display: flex; justify-content: center; gap: 2rem;">
+    <div><span id="cdDays" style="font-family: 'Bebas Neue', sans-serif; font-size: 3.5rem; color: #FFDA00; line-height: 1; text-shadow: 0 0 20px rgba(255,218,0,0.5);">0</span><p style="font-size: 11px; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px;">Dagar</p></div>
+    <div style="font-family: 'Bebas Neue', sans-serif; font-size: 3.5rem; color: rgba(255,218,0,0.4); line-height: 1;">:</div>
+    <div><span id="cdHours" style="font-family: 'Bebas Neue', sans-serif; font-size: 3.5rem; color: #FFDA00; line-height: 1; text-shadow: 0 0 20px rgba(255,218,0,0.5);">0</span><p style="font-size: 11px; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px;">Timmar</p></div>
+    <div style="font-family: 'Bebas Neue', sans-serif; font-size: 3.5rem; color: rgba(255,218,0,0.4); line-height: 1;">:</div>
+    <div><span id="cdMins" style="font-family: 'Bebas Neue', sans-serif; font-size: 3.5rem; color: #FFDA00; line-height: 1; text-shadow: 0 0 20px rgba(255,218,0,0.5);">0</span><p style="font-size: 11px; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px;">Minuter</p></div>
+    <div style="font-family: 'Bebas Neue', sans-serif; font-size: 3.5rem; color: rgba(255,218,0,0.4); line-height: 1;">:</div>
+    <div><span id="cdSecs" style="font-family: 'Bebas Neue', sans-serif; font-size: 3.5rem; color: #FFDA00; line-height: 1; text-shadow: 0 0 20px rgba(255,218,0,0.5);">0</span><p style="font-size: 11px; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px;">Sekunder</p></div>
   </div>
 </div>
 <div class="container">
