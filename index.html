@@ -310,18 +310,21 @@
     <div class="panel" id="adminPanel" style="display:none;">
       <h3>Spara snapshot</h3>
       <p>Ladda upp uppdaterad Excel-fil, ange ett namn och klicka spara. Alla deltagare ser uppdateringen direkt.</p>
-      <div class="row">
-        <input type="text" id="snapshotLabel" placeholder="t.ex. Dag 3 / Gruppspel klart" />
+      <div class="row" style="margin-bottom:10px;">
+        <input type="text" id="snapshotLabel" placeholder="t.ex. 12 jun" />
         <button class="btn sm" onclick="saveSnapshot()">💾 Spara snapshot</button>
         <button class="btn sm danger" onclick="deleteLastSnapshot()">🗑 Ta bort senaste</button>
       </div>
+      <div class="row">
+        <label>
+          <input type="file" id="fileInput2" accept=".xlsx,.xlsm" onchange="handleFile2(this)" />
+          <span class="btn sm blue">🔄 Ladda ny version av filen</span>
+        </label>
+      </div>
     </div>
 
-    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:0.5rem;">
-      <label>
-        <input type="file" id="fileInput2" accept=".xlsx,.xlsm" onchange="handleFile2(this)" />
-        <span class="btn sm blue">🔄 Ladda ny version av filen</span>
-      </label>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:0.5rem; align-items:center;">
+      <a href="https://raw.githubusercontent.com/antatis/vmtips2026/main/Grabbarnas%20VM-tips%202026.xlsm" download class="btn sm" style="text-decoration:none;">⬇️ Ladda ner tipsformulär</a>
       <button class="btn sm" id="adminToggle" onclick="toggleAdmin()">🔐 Admin</button>
     </div>
   </div>
