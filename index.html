@@ -338,7 +338,7 @@
 <script>
 const SUPABASE_URL = 'https://slpiupsyafymqoofmqif.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_EYQIceGFBtUC7RWNs0agnw_3o-NO8Fn';
-const ADMIN_PASS = 'Göken2026';
+const ADMIN_HASH = 'af15e54bcd9596115570cdbb5404832511f0b43846624545f589bd3bc98314d1';
 const PALETTE = ['#FFDA00','#4dabf7','#f06595','#a9e34b','#74c0fc','#ff8787','#63e6be','#e599f7','#ffa94d','#69db7c','#f783ac','#ffe066','#c0eb75','#4dabf7','#ff8787'];
 const SKIP_SHEETS = ['Poäng & instruktioner','Mitt slutspelsträd','Resultat & tabell','Mitt tips','Resultat & tabell (backup)','Third-place combinations'];
 
@@ -411,14 +411,15 @@ async function deleteLastSnapshot() {
   } catch(e) { setStatus('Fel: ' + e.message, true); }
   loading(false);
 }
-function toggleAdmin() {
+async function toggleAdmin() {
   if (adminMode) {
     adminMode = false;
     document.getElementById('adminPanel').style.display = 'none';
     document.getElementById('adminToggle').textContent = '🔐 Admin';
   } else {
     const pw = prompt('Lösenord:');
-    if (pw === ADMIN_PASS) {
+    const pwHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw)))).map(b => b.toString(16).padStart(2,'0')).join('');
+    if (pwHash === ADMIN_HASH) {
       adminMode = true;
       document.getElementById('adminPanel').style.display = 'block';
       document.getElementById('adminToggle').textContent = '🔓 Admin (aktiv)';
