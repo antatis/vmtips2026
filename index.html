@@ -257,6 +257,65 @@
     height: 3px;
     background: linear-gradient(90deg, var(--blue) 0%, var(--yellow) 40%, var(--blue) 100%);
   }
+
+  .toggle-switch { display:flex; align-items:center; gap:10px; cursor:pointer; }
+  .toggle-switch input { display:none; }
+  .toggle-track {
+    width:42px; height:24px; background:rgba(255,255,255,0.1);
+    border-radius:12px; position:relative; transition:background 0.2s;
+    border:1px solid var(--border);
+  }
+  .toggle-switch input:checked + .toggle-track { background:var(--yellow); border-color:var(--yellow); }
+  .toggle-thumb {
+    position:absolute; top:3px; left:3px;
+    width:16px; height:16px; background:#fff;
+    border-radius:50%; transition:transform 0.2s;
+    box-shadow:0 1px 4px rgba(0,0,0,0.3);
+  }
+  .toggle-switch input:checked + .toggle-track .toggle-thumb { transform:translateX(18px); }
+  .toggle-label { font-size:13px; color:var(--muted); user-select:none; }
+  .toggle-switch input:checked ~ .toggle-label { color:var(--yellow); }
+
+  #fetchBar {
+    display: none;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 2rem;
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+    position: relative;
+    overflow: hidden;
+  }
+  #fetchBar::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: -100%;
+    width: 60%; height: 2px;
+    background: var(--yellow);
+    animation: slide 1.2s ease-in-out infinite;
+  }
+  @keyframes slide { to { left: 140%; } }
+
+  .info-btn {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:18px; height:18px; border-radius:50%;
+    border:1px solid var(--muted); color:var(--muted);
+    font-size:11px; cursor:pointer; margin-left:8px;
+    vertical-align:middle; background:transparent;
+    font-family:'DM Sans',sans-serif; flex-shrink:0;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .info-btn:hover { border-color:var(--yellow); color:var(--yellow); }
+  .info-toggle.open span { transform:rotate(90deg); }
+  .info-toggle:hover { color:var(--yellow) !important; }
+  .info-box {
+    display:none; font-size:12px; color:var(--muted);
+    margin-top:6px; line-height:1.6;
+    padding:8px 12px; background:var(--surface2);
+    border-radius:6px; border:1px solid var(--border);
+  }
+  .info-box.visible { display:block; }
 </style>
 </head>
 <body>
@@ -274,6 +333,7 @@
 </header>
 
 
+<div id="fetchBar">Hämtar data...</div>
 <div id="countdownBand" style="background: linear-gradient(90deg, rgba(0,128,204,0.15) 0%, rgba(0,31,61,0.45) 50%, rgba(0,128,204,0.15) 100%); border-bottom: 1px solid rgba(255,230,32,0.35); padding: 0.75rem 2rem; text-align: center;">
   <p style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; color: rgba(255,255,255,0.8); margin-bottom: 10px;">VM 2026 startar om</p>
   <div style="display: flex; justify-content: center; gap: 1.25rem; flex-wrap: wrap;">
@@ -302,7 +362,11 @@
   <div class="status" id="statusMsg"></div>
 
   <div id="dashboard">
-    <div class="metrics" id="metricCards"></div>
+    <div class="view-toggle" style="margin-bottom:1.5rem;">
+      <button class="toggle-btn active" id="tabVM" onclick="if(marathonVisible)toggleMarathon()">VM-tips 2026</button>
+      <button class="toggle-btn" id="tabMarathon" onclick="if(!marathonVisible)toggleMarathon()">🏅 Maratontabell</button>
+    </div>
+    <div id="mainView"><div class="metrics" id="metricCards"></div>
 
     <p class="section-title">Poängutveckling</p>
     <div class="view-toggle">
@@ -337,6 +401,8 @@
       </div>
     </div>
 
+    </div><!-- end mainView -->
+    <div id="marathonView" style="display:none;"></div>
     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:0.5rem; align-items:center;">
       <a href="https://raw.githubusercontent.com/antatis/vmtips2026/main/Grabbarnas%20VM-tips%202026.xlsm" download class="btn sm" style="text-decoration:none;">⬇️ Ladda ner tipsformulär</a>
       <button class="btn sm" id="adminToggle" onclick="toggleAdmin()">🔐 Admin</button>
@@ -485,7 +551,7 @@ function renderLeaderboard(players) {
   if (!players.length) { el.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--muted);font-size:14px;">Inga deltagare ännu</div>'; return; }
   el.innerHTML = players.map((p, i) => `
     <div class="lb-row ${i===0?'first':''}">
-      <span class="lb-rank">${i+1}</span>
+      <span class="lb-rank">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</span>
       <span class="lb-dot" style="background:${PALETTE[i%PALETTE.length]}"></span>
       <span class="lb-name">${p.name}</span>
       <span class="lb-pts">${p.points}</span>
@@ -527,10 +593,166 @@ function renderChart() {
     }
   });
 }
+
+
+
+// ── Maratontabell ──────────────────────────────────────────────
+const MARATHON_YEARS = [2012, 2014, 2016, 2018, 2020, 2024];
+const MARATHON_WINNERS = ['Rostedt','Grabben','Holm','Levin','Åke','Alexander S'];
+const YEAR_WINNERS = {2012:'Levin', 2014:'Grabben', 2016:'Alexander S', 2018:'Holm', 2020:'Rostedt', 2024:'Åke'};
+const MARATHON_RAW = [
+  { name:'Ponk',        y:{2012:12,2014:9, 2016:8, 2018:10,2020:13,2024:16} },
+  { name:'Rostedt',     y:{2012:6, 2014:11,2016:7, 2018:14,2020:20,2024:6 } },
+  { name:'Richard',     y:{2012:null,2014:12,2016:3,2018:11,2020:19,2024:12} },
+  { name:'Tomas S',     y:{2012:null,2014:2,2016:10,2018:13,2020:15,2024:15} },
+  { name:'Anton',       y:{2012:10,2014:2,2016:1, 2018:15,2020:10,2024:17} },
+  { name:'Kuffen',      y:{2012:11,2014:7,2016:5, 2018:null,2020:19,2024:11} },
+  { name:'Simon',       y:{2012:4, 2014:4,2016:null,2018:17,2020:14,2024:10} },
+  { name:'LeBaff',      y:{2012:8, 2014:15,2016:5,2018:12,2020:8, 2024:null} },
+  { name:'Widfeldt',    y:{2012:5, 2014:14,2016:11,2018:2,   2020:12,2024:3} },
+  { name:'Grabben',     y:{2012:3, 2014:16,2016:3,2018:5, 2020:8, 2024:9 } },
+  { name:'Elias',       y:{2012:null,2014:8,2016:10,2018:3,2020:16,2024:7} },
+  { name:'Adam',        y:{2012:7, 2014:13,2016:null,2018:18,2020:4,2024:2} },
+  { name:'Mats',        y:{2012:null,2014:5,2016:7,2018:9, 2020:6, 2024:13} },
+  { name:'Holm',        y:{2012:null,2014:3,2016:null,2018:20,2020:10,2024:4} },
+  { name:'Scout',       y:{2012:null,2014:null,2016:null,2018:6,2020:17,2024:14} },
+  { name:'Måns',        y:{2012:2, 2014:null,2016:12,2018:8,2020:2, 2024:5} },
+  { name:'Levin',       y:{2012:13,2014:6,2016:null,2018:4,2020:4,  2024:1} },
+  { name:'Åke',         y:{2012:1, 2014:null,2016:null,2018:null,2020:1,2024:18} },
+  { name:'Johan Å',     y:{2012:null,2014:null,2016:null,2018:16,2020:5,2024:null} },
+  { name:'Tomas L',     y:{2012:null,2014:null,2016:null,2018:19,2020:null,2024:null} },
+  { name:'Sjöstedt',    y:{2012:10,2014:null,2016:null,2018:null,2020:null,2024:8} },
+  { name:'Alexander S', y:{2012:null,2014:null,2016:13,2018:null,2020:null,2024:null} },
+  { name:'Pacman',      y:{2012:null,2014:null,2016:null,2018:1,2020:11,2024:null} },
+  { name:'Fahlén',      y:{2012:null,2014:11,2016:null,2018:null,2020:null,2024:null} },
+  { name:'Håkan',       y:{2012:null,2014:null,2016:null,2018:7,2020:null,2024:null} },
+  
+  { name:'Holmberg',    y:{2012:null,2014:null,2016:null,2018:null,2020:null,2024:null} },
+];
+
+let include2026 = false;
+
+function hasWon(name) { return MARATHON_WINNERS.includes(name); }
+
+function getTotal(p, incl2026) {
+  let sum = Object.entries(p.y).reduce((s,[y,v]) => s + (v||0), 0);
+  if (incl2026 && p.pts2026) sum += p.pts2026;
+  return sum;
+}
+
+function buildMarathon(incl2026) {
+  let players = MARATHON_RAW.map(p => ({ ...p, y: { ...p.y }, pts2026: 0 }));
+  if (incl2026 && currentData && currentData.length > 0) {
+    const n = currentData.length;
+    const sorted = [...currentData].sort((a,b) => b.points - a.points);
+    let rank = 1;
+    for (let i = 0; i < sorted.length; i++) {
+      if (i > 0 && sorted[i].points < sorted[i-1].points) rank = i + 1;
+      sorted[i].mpts = Math.max(1, n - rank + 1);
+    }
+    sorted.forEach(s => {
+      const match = players.find(p => p.name.toLowerCase() === s.name.toLowerCase());
+      if (match) match.pts2026 = s.mpts;
+      else players.push({ name: s.name, y: Object.fromEntries(MARATHON_YEARS.map(y=>[y,null])), pts2026: s.mpts });
+    });
+  }
+  players.sort((a, b) => {
+    const ta = getTotal(a, incl2026), tb = getTotal(b, incl2026);
+    if (tb !== ta) return tb - ta;
+    const wa = hasWon(a.name)?1:0, wb = hasWon(b.name)?1:0;
+    if (wb !== wa) return wb - wa;
+    return a.name.localeCompare(b.name, 'sv');
+  });
+  let rank = 1;
+  for (let i = 0; i < players.length; i++) {
+    if (i > 0 && getTotal(players[i], incl2026) < getTotal(players[i-1], incl2026)) rank = i + 1;
+    players[i].rank = rank;
+  }
+  return players;
+}
+
+function renderMarathon() {
+  const el = document.getElementById('marathonView');
+  if (!el || el.style.display === 'none') return;
+  const players = buildMarathon(include2026);
+  const years = include2026 ? [...MARATHON_YEARS, 2026] : MARATHON_YEARS;
+
+  const activeYear = include2026 ? 2026 : 2024;
+  const yearHeaders = years.map(y =>
+    `<th style="padding:8px 10px;font-size:12px;color:${y===activeYear?'var(--yellow)':'var(--muted)'};font-weight:${y===activeYear?'700':'500'};white-space:nowrap;text-align:center;">${y}</th>`
+  ).join('');
+
+  const rows = players.map((p, i) => {
+    const total = getTotal(p, include2026);
+    if (total === 0) return '';
+    const won = hasWon(p.name);
+    const yearCells = years.map(y => {
+      const v = y === 2026 ? (p.pts2026 || null) : p.y[y];
+      const isWinner = y !== 2026 && YEAR_WINNERS[y] === p.name;
+      return `<td style="padding:8px 10px;font-size:13px;text-align:center;color:${isWinner?'var(--yellow)':v?'var(--text)':'var(--muted)'};font-weight:${isWinner?'700':'400'};background:${y===activeYear?'rgba(255,230,32,0.04)':'transparent'};">${v||'–'}</td>`;
+    }).join('');
+    return `<tr style="border-bottom:1px solid var(--border);${i===0?'background:rgba(255,230,32,0.06);':''}">
+      <td style="padding:10px 16px;font-family:'Bebas Neue',sans-serif;font-size:1.2rem;color:${p.rank<=3?'var(--yellow)':'var(--muted)'};width:32px;text-align:center;">${p.rank===1?'🥇':p.rank===2?'🥈':p.rank===3?'🥉':p.rank}</td>
+      <td style="padding:10px 12px;font-size:14px;white-space:nowrap;">${p.name}${won?' 🏆':''}</td>
+      ${yearCells}
+      <td style="padding:10px 16px;font-family:'Bebas Neue',sans-serif;font-size:1.3rem;color:var(--yellow);text-align:right;">${total}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:1.25rem;">
+      <div>
+        <p class="section-title" style="margin:0 0 4px;">Maratontabell</p>
+        <p style="font-size:12px;color:var(--muted);margin:0;max-width:480px;">* Poäng tilldelas fallande baserat på antal deltagare — vinnaren får lika många poäng som antalet deltagare, tvåan får ett poäng mindre osv.</p>
+      </div>
+      <label class="toggle-switch" style="flex-shrink:0;">
+        <input type="checkbox" id="toggle2026" onchange="toggle2026(this.checked)" />
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="toggle-label">Live-ställning</span>
+      </label>
+    </div>
+    <div style="overflow-x:auto;border-radius:12px;border:1px solid var(--border);background:var(--surface);">
+      <table style="width:100%;border-collapse:collapse;min-width:500px;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);">
+            <th style="padding:10px 16px;width:32px;"></th>
+            <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--muted);font-weight:500;">Namn</th>
+            ${yearHeaders}
+            <th style="padding:10px 16px;font-size:12px;color:var(--muted);font-weight:500;text-align:right;">Totalt</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function toggle2026(val) {
+  include2026 = val;
+  renderMarathon();
+  const cb = document.getElementById('toggle2026');
+  if (cb) cb.checked = include2026;
+}
+
+let marathonVisible = false;
+function toggleMarathon() {
+  marathonVisible = !marathonVisible;
+  document.getElementById('mainView').style.display = marathonVisible ? 'none' : 'block';
+  document.getElementById('marathonView').style.display = marathonVisible ? 'block' : 'none';
+  document.getElementById('tabVM').className = 'toggle-btn' + (!marathonVisible ? ' active' : '');
+  document.getElementById('tabMarathon').className = 'toggle-btn' + (marathonVisible ? ' active' : '');
+  if (marathonVisible) {
+    renderMarathon();
+    const cb = document.getElementById('toggle2026');
+    if (cb) cb.checked = include2026;
+  }
+}
+// ── End Maratontabell ───────────────────────────────────────────
+
 async function init() {
-  loading(true, 'Ansluter till databasen...');
+  document.getElementById('fetchBar').style.display = 'block';
   await loadSnapshots();
-  loading(false);
+  document.getElementById('fetchBar').style.display = 'none';
   if (snapshots.length > 0) {
     const latest = snapshots[snapshots.length - 1];
     currentData = Object.entries(latest.scores).map(([name, points]) => ({ name, points })).sort((a,b) => b.points - a.points);
