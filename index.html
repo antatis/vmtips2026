@@ -631,6 +631,24 @@ const MARATHON_RAW = [
 ];
 
 let include2026 = false;
+let selectedYear = null;
+let selectedPlayer = null;
+
+function selectPlayer(name) {
+  selectedPlayer = selectedPlayer === name ? null : name;
+  renderMarathon();
+  const cb = document.getElementById('toggle2026');
+  if (cb) cb.checked = include2026;
+  setTimeout(initScrollHint, 50);
+}
+
+function selectYear(y) {
+  selectedYear = selectedYear === y ? null : y;
+  renderMarathon();
+  const cb = document.getElementById('toggle2026');
+  if (cb) cb.checked = include2026;
+  setTimeout(initScrollHint, 50);
+}
 
 function hasWon(name) { return MARATHON_WINNERS.includes(name); }
 
@@ -668,6 +686,8 @@ function buildMarathon(incl2026) {
     if (i > 0 && getTotal(players[i], incl2026) < getTotal(players[i-1], incl2026)) rank = i + 1;
     players[i].rank = rank;
   }
+  // Auto-select rank 1 if nothing selected
+  if (selectedPlayer === null) selectedPlayer = players[0].name;
   return players;
 }
 
@@ -677,9 +697,9 @@ function renderMarathon() {
   const players = buildMarathon(include2026);
   const years = include2026 ? [...MARATHON_YEARS, 2026] : MARATHON_YEARS;
 
-  const activeYear = include2026 ? 2026 : 2024;
+  const activeYear = selectedYear !== null ? selectedYear : (include2026 ? 2026 : 2024);
   const yearHeaders = years.map(y =>
-    `<th style="padding:8px 10px;font-size:12px;color:${y===activeYear?'var(--yellow)':'var(--muted)'};font-weight:${y===activeYear?'700':'500'};white-space:nowrap;text-align:center;">${y}</th>`
+    `<th onclick="selectYear(${y})" style="padding:8px 10px;font-size:12px;color:${y===activeYear?'var(--yellow)':'var(--muted)'};font-weight:${y===activeYear?'700':'500'};white-space:nowrap;text-align:center;cursor:pointer;user-select:none;">${y}</th>`
   ).join('');
 
   const rows = players.map((p, i) => {
@@ -691,9 +711,10 @@ function renderMarathon() {
       const isWinner = y !== 2026 && YEAR_WINNERS[y] === p.name;
       return `<td style="padding:8px 10px;font-size:13px;text-align:center;color:${isWinner?'var(--yellow)':v?'var(--text)':'var(--muted)'};font-weight:${isWinner?'700':'400'};background:${y===activeYear?'rgba(255,230,32,0.04)':'transparent'};">${v||'–'}</td>`;
     }).join('');
-    return `<tr style="border-bottom:1px solid var(--border);${i===0?'background:rgba(255,230,32,0.06);':''}">
-      <td style="padding:10px 16px;font-family:'Bebas Neue',sans-serif;font-size:1.2rem;color:${p.rank<=3?'var(--yellow)':'var(--muted)'};width:32px;text-align:center;">${p.rank===1?'🥇':p.rank===2?'🥈':p.rank===3?'🥉':p.rank}</td>
-      <td style="padding:10px 12px;font-size:14px;white-space:nowrap;">${p.name}${won?' 🏆':''}</td>
+    const isSelected = p.name === selectedPlayer;
+    return `<tr onclick="selectPlayer('${p.name}')" style="border-bottom:1px solid var(--border);background:${isSelected?'rgba(255,230,32,0.04)':'transparent'};box-shadow:${p.rank===1?'inset 3px 0 0 var(--yellow)':'none'};cursor:pointer;">
+      <td style="padding:10px 16px;font-family:'Bebas Neue',sans-serif;font-size:1.2rem;color:${p.rank<=3?'var(--yellow)':'var(--muted)'};width:32px;text-align:center;position:sticky;left:0;z-index:2;background:${isSelected?'rgba(255,230,32,0.04)':'transparent'};">${p.rank===1?'🥇':p.rank===2?'🥈':p.rank===3?'🥉':p.rank}</td>
+      <td style="padding:10px 12px;font-size:14px;white-space:nowrap;position:sticky;left:48px;z-index:2;background:${isSelected?'rgba(255,230,32,0.04)':'transparent'};">${p.name}${won?' 🏆':''}</td>
       ${yearCells}
       <td style="padding:10px 16px;font-family:'Bebas Neue',sans-serif;font-size:1.3rem;color:var(--yellow);text-align:right;">${total}</td>
     </tr>`;
@@ -716,8 +737,8 @@ function renderMarathon() {
       <table style="width:100%;border-collapse:collapse;min-width:500px;">
         <thead>
           <tr style="border-bottom:1px solid var(--border);">
-            <th style="padding:10px 16px;width:32px;"></th>
-            <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--muted);font-weight:500;">Namn</th>
+            <th style="padding:10px 16px;width:32px;position:sticky;left:0;z-index:3;background:var(--surface);"></th>
+            <th style="padding:10px 12px;text-align:left;font-size:12px;color:var(--muted);font-weight:500;position:sticky;left:48px;z-index:3;background:var(--surface);">Namn</th>
             ${yearHeaders}
             <th style="padding:10px 16px;font-size:12px;color:var(--muted);font-weight:500;text-align:right;">Totalt</th>
           </tr>
@@ -730,6 +751,8 @@ function renderMarathon() {
 
 function toggle2026(val) {
   include2026 = val;
+  if (val) selectedYear = 2026;
+  else if (selectedYear === 2026) selectedYear = null;
   renderMarathon();
   const cb = document.getElementById('toggle2026');
   if (cb) cb.checked = include2026;
