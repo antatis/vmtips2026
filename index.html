@@ -711,7 +711,8 @@ function renderMarathon() {
         <span class="toggle-label">Live-ställning</span>
       </label>
     </div>
-    <div style="overflow-x:auto;border-radius:12px;border:1px solid var(--border);background:var(--surface);">
+    <div style="position:relative;">
+      <div style="overflow-x:auto;border-radius:12px;border:1px solid var(--border);background:var(--surface);" id="marathonScroll" onscroll="checkScroll(this)">
       <table style="width:100%;border-collapse:collapse;min-width:500px;">
         <thead>
           <tr style="border-bottom:1px solid var(--border);">
@@ -732,6 +733,7 @@ function toggle2026(val) {
   renderMarathon();
   const cb = document.getElementById('toggle2026');
   if (cb) cb.checked = include2026;
+  setTimeout(initScrollHint, 50);
 }
 
 let marathonVisible = false;
@@ -745,9 +747,23 @@ function toggleMarathon() {
     renderMarathon();
     const cb = document.getElementById('toggle2026');
     if (cb) cb.checked = include2026;
+    setTimeout(initScrollHint, 50);
   }
 }
 // ── End Maratontabell ───────────────────────────────────────────
+
+
+function checkScroll(el) {
+  const hint = document.getElementById('scrollHint');
+  if (hint) hint.style.display = 'none';
+}
+function initScrollHint() {
+  const el = document.getElementById('marathonScroll');
+  const hint = document.getElementById('scrollHint');
+  if (el && hint && el.scrollWidth > el.clientWidth) {
+    hint.style.display = 'block';
+  }
+}
 
 async function init() {
   document.getElementById('fetchBar').style.display = 'block';
