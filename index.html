@@ -903,19 +903,23 @@ async function submitGuestbook() {
   if (message.length > 500) { setStatus('Meddelandet får max vara 500 tecken.', true); return; }
   loading(true, 'Skickar...');
   try {
-    const kalleRegex = /^(kall?e[\s_-]*kull?a|kull?a[\s_-]*kall?e|k[\s_-]*kull?a|kall?e[\s_-]*k)$/i;
-    const wasKalle = kalleRegex.test(name.trim());
-    if (!wasKalle) await supabase('POST', 'guestbook', { name, message });
+    const fakeKalleRegex = /(kall?e[\s_-]*kull?a|kull?a[\s_-]*kall?e)/i;
+    const isSecretKalle = name.toLowerCase() === 'theoneandonlykula';
+    const isFakeKalle = !isSecretKalle && fakeKalleRegex.test(name);
+    if (isFakeKalle) {
+      document.getElementById('gbName').value = '';
+      document.getElementById('gbMessage').value = '';
+      loading(false);
+      document.getElementById('redCardOverlay').classList.add('show');
+      return;
+    }
+    const postName = isSecretKalle ? 'Kalle Kula' : name;
+    await supabase('POST', 'guestbook', { name: postName, message });
     document.getElementById('gbName').value = '';
     document.getElementById('gbMessage').value = '';
     await loadGuestbook();
     renderGuestbook();
-    if (wasKalle) {
-      document.getElementById('redCardOverlay').classList.add('show');
-
-    } else {
-      setStatus('Inlägg skickat!');
-    }
+    setStatus('Inlägg skickat!');
   } catch(e) {
     setStatus('Fel: ' + e.message, true);
   }
