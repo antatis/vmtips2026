@@ -46,24 +46,53 @@
   }
   header, .container, footer, #countdownBand { position: relative; z-index: 1; }
   header {
-    border-bottom: 2px solid var(--yellow);
-    padding: 1.25rem 2rem;
-    display: flex;
-    align-items: baseline;
-    gap: 1rem;
-    background: rgba(0,31,61,0.88);
-    backdrop-filter: blur(6px);
+    padding: 1.5rem 2rem 0;
+    background: rgba(0,31,61,0.65);
+    backdrop-filter: blur(8px);
+    position: relative;
   }
+  .header-inner {
+    display: flex;
+    align-items: flex-end;
+    gap: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(255,218,0,0.15);
+  }
+  .header-accent {
+    width: 4px;
+    height: 2.4rem;
+    background: linear-gradient(180deg, var(--yellow) 0%, rgba(255,218,0,0.3) 100%);
+    border-radius: 2px;
+    flex-shrink: 0;
+    align-self: center;
+  }
+  .header-text { display: flex; flex-direction: column; gap: 2px; }
   header h1 {
     font-family: "Bebas Neue", sans-serif;
-    font-size: 2.2rem;
-    letter-spacing: 0.06em;
+    font-size: 2.4rem;
+    letter-spacing: 0.08em;
     color: var(--yellow);
     line-height: 1;
-    text-shadow: 0 2px 12px rgba(0,0,0,0.5);
+    text-shadow: 0 2px 16px rgba(0,0,0,0.4);
   }
-  header .flag { font-size: 1.5rem; margin-right: 4px; }
-  header span { font-size: 13px; color: var(--muted); }
+  .header-sub {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+  .header-year {
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 4rem;
+    color: rgba(255,218,0,0.06);
+    line-height: 1;
+    position: absolute;
+    right: 2rem;
+    bottom: 0.5rem;
+    letter-spacing: 0.05em;
+    user-select: none;
+    pointer-events: none;
+  }
   .container { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem; }
 
   .upload-zone {
@@ -316,6 +345,54 @@
     border-radius:6px; border:1px solid var(--border);
   }
   .info-box.visible { display:block; }
+
+  #redCardOverlay {
+    display:none;
+    position:fixed;inset:0;
+    background:rgba(0,0,0,0.7);
+    z-index:999;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    gap:16px;
+  }
+  #redCardOverlay.show { display:flex; }
+  .referee {
+    font-size:8rem;
+    animation: refRun 0.6s ease-out, refArmUp 0.4s 0.6s ease-out forwards;
+    transform-origin:bottom center;
+  }
+  @keyframes refRun {
+    0% { transform:translateX(-300px) rotate(-10deg); opacity:0; }
+    100% { transform:translateX(0) rotate(0deg); opacity:1; }
+  }
+  @keyframes refArmUp {
+    0% { transform:translateY(0); }
+    100% { transform:translateY(-10px); }
+  }
+  .red-card {
+    font-size:5rem;
+    opacity:0;
+    animation: cardShow 0.3s 0.9s ease-out forwards;
+  }
+  @keyframes cardShow {
+    0% { opacity:0; transform:scale(0.3) rotate(-20deg); }
+    70% { transform:scale(1.2) rotate(5deg); }
+    100% { opacity:1; transform:scale(1) rotate(0deg); }
+  }
+  .red-card-text {
+    font-family:'Bebas Neue',sans-serif;
+    font-size:2rem;
+    color:#fff;
+    letter-spacing:0.1em;
+    opacity:0;
+    animation: fadeInText 0.4s 1.2s ease-out forwards;
+    text-align:center;
+  }
+  @keyframes fadeInText {
+    from { opacity:0; transform:translateY(10px); }
+    to { opacity:1; transform:translateY(0); }
+  }
 </style>
 </head>
 <body>
@@ -327,9 +404,20 @@
   <p id="loadingMsg">Sparar...</p>
 </div>
 
-<header>
-  <h1>Grabbarnas VM-tips 2026</h1>
+<div id="redCardOverlay" onclick="document.getElementById('redCardOverlay').classList.remove('show')">
+  <div class="referee">🥸</div>
+  <div class="red-card">🟥</div>
   
+
+</div>
+
+<header>
+  <div class="header-inner">
+    <div class="header-accent"></div>
+    <div class="header-text">
+      <h1>Grabbarnas VM-tips 2026</h1>
+    </div>
+  </div>
 </header>
 
 
@@ -363,8 +451,9 @@
 
   <div id="dashboard">
     <div class="view-toggle" style="margin-bottom:1.5rem;">
-      <button class="toggle-btn active" id="tabVM" onclick="if(marathonVisible)toggleMarathon()">VM-tips 2026</button>
-      <button class="toggle-btn" id="tabMarathon" onclick="if(!marathonVisible)toggleMarathon()">🏅 Maratontabell</button>
+      <button class="toggle-btn active" id="tabVM" onclick="showTab('vm')">⚽ VM-tips 2026</button>
+      <button class="toggle-btn" id="tabMarathon" onclick="showTab('marathon')">🏅 Maratontabell</button>
+      <button class="toggle-btn" id="tabGuestbook" onclick="showTab('guestbook')">📖 Gästbok</button>
     </div>
     <div id="mainView"><div class="metrics" id="metricCards"></div>
 
@@ -403,6 +492,7 @@
 
     </div><!-- end mainView -->
     <div id="marathonView" style="display:none;"></div>
+    <div id="guestbookView" style="display:none;"></div>
     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:0.5rem; align-items:center;">
       <a href="https://raw.githubusercontent.com/antatis/vmtips2026/main/Grabbarnas%20VM-tips%202026.xlsm" download class="btn sm" style="text-decoration:none;">⬇️ Ladda ner tipsformulär</a>
       <button class="btn sm" id="adminToggle" onclick="toggleAdmin()">🔐 Admin</button>
@@ -495,6 +585,7 @@ async function toggleAdmin() {
     adminMode = false;
     document.getElementById('adminPanel').style.display = 'none';
     document.getElementById('adminToggle').textContent = '🔐 Admin';
+    if (currentTab === 'guestbook') renderGuestbook();
   } else {
     const pw = prompt('Lösenord:');
     const pwHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw)))).map(b => b.toString(16).padStart(2,'0')).join('');
@@ -502,6 +593,7 @@ async function toggleAdmin() {
       adminMode = true;
       document.getElementById('adminPanel').style.display = 'block';
       document.getElementById('adminToggle').textContent = '🔓 Admin (aktiv)';
+      if (currentTab === 'guestbook') renderGuestbook();
     } else if (pw !== null) { alert('Fel lösenord.'); }
   }
 }
@@ -759,19 +851,22 @@ function toggle2026(val) {
   setTimeout(initScrollHint, 50);
 }
 
-let marathonVisible = false;
-function toggleMarathon() {
-  marathonVisible = !marathonVisible;
-  document.getElementById('mainView').style.display = marathonVisible ? 'none' : 'block';
-  document.getElementById('marathonView').style.display = marathonVisible ? 'block' : 'none';
-  document.getElementById('tabVM').className = 'toggle-btn' + (!marathonVisible ? ' active' : '');
-  document.getElementById('tabMarathon').className = 'toggle-btn' + (marathonVisible ? ' active' : '');
-  if (marathonVisible) {
+let currentTab = 'vm';
+function showTab(tab) {
+  currentTab = tab;
+  document.getElementById('mainView').style.display = tab === 'vm' ? 'block' : 'none';
+  document.getElementById('marathonView').style.display = tab === 'marathon' ? 'block' : 'none';
+  document.getElementById('guestbookView').style.display = tab === 'guestbook' ? 'block' : 'none';
+  document.getElementById('tabVM').className = 'toggle-btn' + (tab === 'vm' ? ' active' : '');
+  document.getElementById('tabMarathon').className = 'toggle-btn' + (tab === 'marathon' ? ' active' : '');
+  document.getElementById('tabGuestbook').className = 'toggle-btn' + (tab === 'guestbook' ? ' active' : '');
+  if (tab === 'marathon') {
     renderMarathon();
     const cb = document.getElementById('toggle2026');
     if (cb) cb.checked = include2026;
     setTimeout(initScrollHint, 50);
   }
+  if (tab === 'guestbook') renderGuestbook();
 }
 // ── End Maratontabell ───────────────────────────────────────────
 
@@ -788,9 +883,113 @@ function initScrollHint() {
   }
 }
 
+
+// ── Gästbok ─────────────────────────────────────────────────────
+let guestbookEntries = [];
+
+async function loadGuestbook() {
+  try {
+    const res = await supabase('GET', 'guestbook?order=created_at.desc&select=id,name,message,created_at');
+    guestbookEntries = res || [];
+  } catch(e) {
+    console.error('Gästbok fel:', e);
+  }
+}
+
+async function submitGuestbook() {
+  const name = document.getElementById('gbName').value.trim();
+  const message = document.getElementById('gbMessage').value.trim();
+  if (!name || !message) { setStatus('Fyll i namn och meddelande.', true); return; }
+  if (message.length > 500) { setStatus('Meddelandet får max vara 500 tecken.', true); return; }
+  loading(true, 'Skickar...');
+  try {
+    await supabase('POST', 'guestbook', { name, message });
+    const wasKalle = name.toLowerCase() === 'kalle kula';
+    document.getElementById('gbName').value = '';
+    document.getElementById('gbMessage').value = '';
+    await loadGuestbook();
+    renderGuestbook();
+    if (wasKalle) {
+      document.getElementById('redCardOverlay').classList.add('show');
+
+    } else {
+      setStatus('Inlägg skickat!');
+    }
+  } catch(e) {
+    setStatus('Fel: ' + e.message, true);
+  }
+  loading(false);
+}
+
+async function deleteGuestbookEntry(id) {
+  if (!confirm('Ta bort inlägg?')) return;
+  loading(true, 'Tar bort...');
+  try {
+    await supabase('DELETE', 'guestbook?id=eq.' + id);
+    await loadGuestbook();
+    renderGuestbook();
+  } catch(e) {
+    setStatus('Fel: ' + e.message, true);
+  }
+  loading(false);
+}
+
+function renderGuestbook() {
+  const el = document.getElementById('guestbookView');
+  if (!el || el.style.display === 'none') return;
+
+  const total = guestbookEntries.length;
+  const entries = guestbookEntries.map((e, i) => {
+    const d = new Date(e.created_at);
+    const dateStr = d.toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' });
+    return `
+      ${e.name.toLowerCase() === 'kalle kula' ? `
+      <div style="background:linear-gradient(135deg,rgba(255,218,0,0.15),rgba(0,106,167,0.15));border:2px solid var(--yellow);border-radius:10px;padding:1rem 1.25rem;margin-bottom:12px;position:relative;box-shadow:0 0 18px rgba(255,218,0,0.18);">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:1rem;color:var(--muted);min-width:28px;">#${total-i}</span>
+            <span style="font-weight:600;font-size:15px;color:var(--yellow);">👑 ${e.name} 👑</span>
+            
+            <span style="font-size:12px;color:var(--muted);">${dateStr}</span>
+          </div>
+          ${adminMode ? `<button onclick="deleteGuestbookEntry('${e.id}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0;flex-shrink:0;" title="Ta bort">🗑</button>` : ''}
+        </div>
+        <p style="margin:8px 0 0;font-size:14px;color:var(--text);line-height:1.6;">${e.message.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>
+      </div>` : `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1rem 1.25rem;margin-bottom:12px;position:relative;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:1rem;color:var(--muted);min-width:28px;">#${total-i}</span>
+            <span style="font-weight:600;font-size:15px;color:var(--yellow);">${e.name}</span>
+            <span style="font-size:12px;color:var(--muted);">${dateStr}</span>
+          </div>
+          ${adminMode ? `<button onclick="deleteGuestbookEntry('${e.id}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0;flex-shrink:0;" title="Ta bort">🗑</button>` : ''}
+        </div>
+        <p style="margin:8px 0 0;font-size:14px;color:var(--text);line-height:1.6;">${e.message.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>
+      </div>`}`;
+  }).join('');
+
+  el.innerHTML = `
+    <p class="section-title" style="margin-bottom:1.25rem;">Gästbok <span style="font-size:11px;color:var(--muted);font-family:'DM Sans',sans-serif;text-transform:none;letter-spacing:0;">(${guestbookEntries.length} inlägg)</span></p>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.25rem 1.5rem;margin-bottom:1.5rem;">
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <input type="text" id="gbName" placeholder="Ditt namn" maxlength="50" style="padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px;font-family:'DM Sans',sans-serif;outline:none;" />
+        <textarea id="gbMessage" placeholder="Skriv ett meddelande..." maxlength="500" rows="3" style="padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px;font-family:'DM Sans',sans-serif;outline:none;resize:vertical;"></textarea>
+        <button onclick="submitGuestbook()" class="btn sm" style="align-self:flex-start;">✉️ Skicka</button>
+      </div>
+    </div>
+
+    <div id="gbEntries">
+      ${entries || '<p style="color:var(--muted);font-size:14px;text-align:center;padding:2rem;">Inga inlägg ännu — var först!</p>'}
+    </div>
+  `;
+}
+// ── End Gästbok ─────────────────────────────────────────────────
+
 async function init() {
   document.getElementById('fetchBar').style.display = 'block';
-  await loadSnapshots();
+  await Promise.all([loadSnapshots(), loadGuestbook()]);
   document.getElementById('fetchBar').style.display = 'none';
   if (snapshots.length > 0) {
     const latest = snapshots[snapshots.length - 1];
