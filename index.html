@@ -903,8 +903,9 @@ async function submitGuestbook() {
   if (message.length > 500) { setStatus('Meddelandet får max vara 500 tecken.', true); return; }
   loading(true, 'Skickar...');
   try {
-    await supabase('POST', 'guestbook', { name, message });
-    const wasKalle = name.toLowerCase() === 'kalle kula';
+    const kalleRegex = /^(kall?e[\s_-]*kull?a|kull?a[\s_-]*kall?e|k[\s_-]*kull?a|kall?e[\s_-]*k)$/i;
+    const wasKalle = kalleRegex.test(name.trim());
+    if (!wasKalle) await supabase('POST', 'guestbook', { name, message });
     document.getElementById('gbName').value = '';
     document.getElementById('gbMessage').value = '';
     await loadGuestbook();
@@ -943,7 +944,7 @@ function renderGuestbook() {
     const d = new Date(e.created_at);
     const dateStr = d.toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' });
     return `
-      ${e.name.toLowerCase() === 'kalle kula' ? `
+      ${/^(kall?e[\s_-]*kull?a|kull?a[\s_-]*kall?e|k[\s_-]*kull?a|kall?e[\s_-]*k)$/i.test(e.name.trim()) ? `
       <div style="background:linear-gradient(135deg,rgba(255,218,0,0.15),rgba(0,106,167,0.15));border:2px solid var(--yellow);border-radius:10px;padding:1rem 1.25rem;margin-bottom:12px;position:relative;box-shadow:0 0 18px rgba(255,218,0,0.18);">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
