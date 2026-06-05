@@ -195,7 +195,7 @@
     padding: 1.25rem;
     margin-bottom: 2rem;
     position: relative;
-    height: 360px;
+    height: 480px;
   }
   .chart-placeholder {
     position: absolute; inset: 0;
@@ -501,7 +501,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; v0.9 &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; v0.9.4 &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -607,7 +607,7 @@ function extractPlayers(wb) {
     if (ws[cellRef] && typeof ws[cellRef].v === 'number') pts = ws[cellRef].v;
     players.push({ name, points: pts });
   });
-  return players.sort((a, b) => b.points - a.points);
+  return players.sort((a, b) => b.points - a.points || a.name.localeCompare(b.name, 'sv'));
 }
 function parseFile(file, callback) {
   loading(true, 'Läser fil...');
@@ -641,13 +641,26 @@ function renderMetricCards() {
 function renderLeaderboard(players) {
   const el = document.getElementById('leaderboard');
   if (!players.length) { el.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--muted);font-size:14px;">Inga deltagare ännu</div>'; return; }
-  el.innerHTML = players.map((p, i) => `
-    <div class="lb-row ${i===0?'first':''}">
-      <span class="lb-rank">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</span>
+  // Shared/tied ranking: same points => same rank, next rank skips
+  let rank = 1;
+  const ranked = players.map((p, i) => {
+    if (i > 0 && p.points < players[i-1].points) rank = i + 1;
+    return { ...p, rank };
+  });
+  el.innerHTML = ranked.map((p, i) => {
+    let rankDisplay = p.rank;
+    if (p.rank === 1) rankDisplay = '🥇';
+    else if (p.rank === 2) rankDisplay = '🥈';
+    else if (p.rank === 3) rankDisplay = '🥉';
+    const isLeader = p.rank === 1;
+    return `
+    <div class="lb-row ${isLeader?'first':''}">
+      <span class="lb-rank">${rankDisplay}</span>
       <span class="lb-dot" style="background:${PALETTE[i%PALETTE.length]}"></span>
       <span class="lb-name">${p.name}</span>
       <span class="lb-pts">${p.points}</span>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 function setView(v) {
   currentView = v;
@@ -667,7 +680,7 @@ function renderChart() {
     const color = PALETTE[i % PALETTE.length];
     const data = currentView === 'points'
       ? snapshots.map(s => s.scores[name] ?? null)
-      : snapshots.map(s => { const sorted = Object.keys(s.scores).sort((a,b)=>s.scores[b]-s.scores[a]); const idx = sorted.indexOf(name); return idx === -1 ? null : idx + 1; });
+      : snapshots.map(s => { const sorted = Object.keys(s.scores).sort((a,b)=>s.scores[b]-s.scores[a]); const idx = sorted.indexOf(name); if (idx === -1) return null; let rank = 1; for (let j = 1; j <= idx; j++) { if (s.scores[sorted[j]] < s.scores[sorted[j-1]]) rank = j + 1; } return rank; });
     return { label: name, data, borderColor: color, backgroundColor: color+'22', tension: 0.35, pointRadius: 4, pointHoverRadius: 7, fill: false, borderWidth: 2 };
   });
   historyChart = new Chart(canvas, {
@@ -676,7 +689,7 @@ function renderChart() {
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { display: true, position: 'bottom', labels: { boxWidth: 10, color: 'rgba(255,255,255,0.5)', font: { size: 12, family: 'DM Sans' }, padding: 14 } },
-        tooltip: { mode: 'index', intersect: false, backgroundColor: 'rgba(0,31,61,0.95)', borderColor: 'rgba(255,230,32,0.35)', borderWidth: 1, titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.75)' }
+        tooltip: { mode: 'index', intersect: false, backgroundColor: 'rgba(0,31,61,0.95)', borderColor: 'rgba(255,230,32,0.35)', borderWidth: 1, titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.75)', bodyFont: { size: 10 }, titleFont: { size: 11 }, padding: 6, boxPadding: 2, bodySpacing: 1 }
       },
       scales: {
         y: { reverse: currentView==='rank', grid: { color: 'rgba(255,230,32,0.08)' }, ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 12 }, stepSize: 1, callback: function(v) { return Number.isInteger(v) ? v : null; } }, title: { display: true, text: currentView==='rank'?'Placering':'Poäng', color: 'rgba(255,230,32,0.8)', font: { size: 12 } } },
@@ -754,7 +767,7 @@ function buildMarathon(incl2026) {
   let players = MARATHON_RAW.map(p => ({ ...p, y: { ...p.y }, pts2026: 0 }));
   if (incl2026 && currentData && currentData.length > 0) {
     const n = currentData.length;
-    const sorted = [...currentData].sort((a,b) => b.points - a.points);
+    const sorted = [...currentData].sort((a,b) => b.points - a.points || a.name.localeCompare(b.name, 'sv'));
     let rank = 1;
     for (let i = 0; i < sorted.length; i++) {
       if (i > 0 && sorted[i].points < sorted[i-1].points) rank = i + 1;
@@ -998,7 +1011,7 @@ async function init() {
   document.getElementById('fetchBar').style.display = 'none';
   if (snapshots.length > 0) {
     const latest = snapshots[snapshots.length - 1];
-    currentData = Object.entries(latest.scores).map(([name, points]) => ({ name, points })).sort((a,b) => b.points - a.points);
+    currentData = Object.entries(latest.scores).map(([name, points]) => ({ name, points })).sort((a,b) => b.points - a.points || a.name.localeCompare(b.name, 'sv'));
     document.getElementById('uploadZone').style.display = 'none';
     document.getElementById('dashboard').style.display = 'block';
     renderLeaderboard(currentData); renderMetricCards(); renderChart();
@@ -1010,7 +1023,7 @@ async function init() {
       renderChart(); renderMetricCards();
       if (snapshots.length > 0) {
         const latest = snapshots[snapshots.length - 1];
-        currentData = Object.entries(latest.scores).map(([n,p])=>({name:n,points:p})).sort((a,b)=>b.points-a.points);
+        currentData = Object.entries(latest.scores).map(([n,p])=>({name:n,points:p})).sort((a,b)=>b.points-a.points || a.name.localeCompare(b.name, 'sv'));
         renderLeaderboard(currentData);
       }
     }
