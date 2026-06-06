@@ -453,10 +453,11 @@
 
   <div id="dashboard">
     <div class="view-toggle" style="margin-bottom:1.5rem;">
-      <button class="toggle-btn active" id="tabVM" onclick="showTab('vm')" style="display:flex;flex-direction:column;align-items:center;gap:2px;"><span>⚽</span><span>VM-tips 2026</span></button>
+      <button class="toggle-btn active" id="tabVM" onclick="showTab('vm')" style="display:flex;flex-direction:column;align-items:center;gap:2px;"><span>⚽</span><span>Poäng</span></button>
       <button class="toggle-btn" id="tabMatchday" onclick="showTab('matchday')" style="display:flex;flex-direction:column;align-items:center;gap:2px;"><span>📅</span><span>Speldag</span></button>
-      <button class="toggle-btn" id="tabMarathon" onclick="showTab('marathon')" style="display:flex;flex-direction:column;align-items:center;gap:2px;"><span>🏅</span><span>Maratontabell</span></button>
-      <button class="toggle-btn" id="tabGuestbook" onclick="showTab('guestbook')" style="display:flex;flex-direction:column;align-items:center;gap:2px;"><span>📖</span><span>Gästbok</span></button>
+      <button class="toggle-btn" id="tabMarathon" onclick="showTab('marathon')" style="display:flex;flex-direction:column;align-items:center;gap:2px;"><span>🏅</span><span>Maraton</span></button>
+      <button class="toggle-btn" id="tabInsights" onclick="showTab('insights')" style="display:flex;flex-direction:column;align-items:center;gap:2px;"><span>📊</span><span>Analys</span></button>
+      <button class="toggle-btn" id="tabGuestbook" onclick="showTab('guestbook')" style="display:flex;flex-direction:column;align-items:center;gap:2px;"><span>📖</span><span>GB</span></button>
     </div>
     <div id="mainView">
 
@@ -496,12 +497,13 @@
     </div><!-- end mainView -->
     <div id="matchdayView" style="display:none;"></div>
     <div id="marathonView" style="display:none;"></div>
+    <div id="insightsView" style="display:none;"></div>
     <div id="guestbookView" style="display:none;"></div>
   </div>
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v0.19</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v0.38</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -864,10 +866,12 @@ function showTab(tab) {
   document.getElementById('mainView').style.display = tab === 'vm' ? 'block' : 'none';
   document.getElementById('matchdayView').style.display = tab === 'matchday' ? 'block' : 'none';
   document.getElementById('marathonView').style.display = tab === 'marathon' ? 'block' : 'none';
+  document.getElementById('insightsView').style.display = tab === 'insights' ? 'block' : 'none';
   document.getElementById('guestbookView').style.display = tab === 'guestbook' ? 'block' : 'none';
   document.getElementById('tabVM').className = 'toggle-btn' + (tab === 'vm' ? ' active' : '');
   document.getElementById('tabMatchday').className = 'toggle-btn' + (tab === 'matchday' ? ' active' : '');
   document.getElementById('tabMarathon').className = 'toggle-btn' + (tab === 'marathon' ? ' active' : '');
+  document.getElementById('tabInsights').className = 'toggle-btn' + (tab === 'insights' ? ' active' : '');
   document.getElementById('tabGuestbook').className = 'toggle-btn' + (tab === 'guestbook' ? ' active' : '');
   if (tab === 'marathon') {
     renderMarathon();
@@ -877,6 +881,7 @@ function showTab(tab) {
   }
   if (tab === 'guestbook') renderGuestbook();
   if (tab === 'matchday') renderMatchday();
+  if (tab === 'insights') renderInsights();
 }
 // ── End Maratontabell ───────────────────────────────────────────
 
@@ -1003,13 +1008,511 @@ function renderGuestbook() {
 // ── End Gästbok ─────────────────────────────────────────────────
 
 
-// ── Aktuell speldag ─────────────────────────────────────────────
+// ── Datainsikter ────────────────────────────────────────────────
+let insightView = 'h2h'; // 'h2h' | 'kuriosa' (Gruppspel) | 'bonus' | 'slutspel'
+let h2hA = null, h2hB = null;
+
+function groupMatches() {
+  return VMDATA.schedule.filter(m => m.n <= GROUP_LAST_MATCH);
+}
+
+// Wildcard score: how often a player went against the grain across group games
+function computeWildcard() {
+  const matches = groupMatches();
+  const total = VMDATA.players.length;
+  const scores = {};
+  VMDATA.players.forEach(p => scores[p] = { pts: 0, solo: 0, bold: 0 });
+
+  matches.forEach(m => {
+    const num = String(m.n);
+    const byOutcome = { '1': [], 'X': [], '2': [] };
+    const scoreCount = {};
+    VMDATA.players.forEach(p => {
+      const t = (VMDATA.tips[p]||{})[num];
+      if (!t) return;
+      const o = t[0] > t[1] ? '1' : t[0] < t[1] ? '2' : 'X';
+      byOutcome[o].push(p);
+      const k = t[0]+'-'+t[1];
+      scoreCount[k] = (scoreCount[k]||0)+1;
+    });
+    const counts = { '1': byOutcome['1'].length, 'X': byOutcome['X'].length, '2': byOutcome['2'].length };
+    const maxOutcome = Math.max(counts['1'], counts['X'], counts['2']);
+
+    VMDATA.players.forEach(p => {
+      const t = (VMDATA.tips[p]||{})[num];
+      if (!t) return;
+      const o = t[0] > t[1] ? '1' : t[0] < t[1] ? '2' : 'X';
+      // Outcome deviation (weighted heaviest): points = how rare your outcome is
+      const sameOutcome = counts[o];
+      if (sameOutcome < maxOutcome) {
+        // deviated from the most common outcome
+        const rarity = (total - sameOutcome) / total; // 0..1, higher = rarer
+        scores[p].pts += 3 * rarity;
+        if (sameOutcome === 1) { scores[p].pts += 2; scores[p].solo += 1; } // alone on outcome
+        scores[p].bold += 1;
+      }
+      // Exact-result deviation (lighter): rare exact score adds a little
+      const sameScore = scoreCount[t[0]+'-'+t[1]];
+      const scoreRarity = (total - sameScore) / total;
+      scores[p].pts += 1 * scoreRarity;
+    });
+  });
+
+  return VMDATA.players
+    .map(p => ({ name: p, ...scores[p] }))
+    .sort((a,b) => b.pts - a.pts || a.name.localeCompare(b.name,'sv'));
+}
+
+function renderInsights() {
+  const el = document.getElementById('insightsView');
+  const subnav = `
+    <div class="view-toggle" style="margin-bottom:1.25rem;flex-wrap:wrap;">
+      <button class="toggle-btn ${insightView==='h2h'?'active':''}" onclick="setInsightView('h2h')">Head-to-head</button>
+      <button class="toggle-btn ${insightView==='kuriosa'?'active':''}" onclick="setInsightView('kuriosa')">Gruppspel</button>
+      <button class="toggle-btn ${insightView==='bonus'?'active':''}" onclick="setInsightView('bonus')">Bonusfrågor</button>
+      <button class="toggle-btn ${insightView==='slutspel'?'active':''}" onclick="setInsightView('slutspel')">Slutspel</button>
+    </div>`;
+
+  let body = '';
+  if (insightView === 'h2h') {
+    body = renderH2H();
+  } else if (insightView === 'kuriosa') {
+    body = renderKuriosa();
+  } else if (insightView === 'bonus') {
+    body = renderBonus();
+  } else if (insightView === 'slutspel') {
+    body = renderSlutspel();
+  } else {
+    body = renderKuriosa();
+  }
+
+  el.innerHTML = subnav + body;
+}
+
+function setInsightView(v) {
+  insightView = v;
+  renderInsights();
+}
+
+function h2hPlayerOptions(selected) {
+  return VMDATA.players.slice().sort((a,b)=>a.localeCompare(b,'sv'))
+    .map(p => `<option value="${p}"${p===selected?' selected':''}>${p}</option>`).join('');
+}
+
+function computeH2H(a, b) {
+  const matches = groupMatches();
+  let exact = 0, outcome = 0, diff = 0;
+  const rows = [];
+  matches.forEach(m => {
+    const num = String(m.n);
+    const ta = (VMDATA.tips[a]||{})[num];
+    const tb = (VMDATA.tips[b]||{})[num];
+    if (!ta || !tb) return;
+    const oa = ta[0] > ta[1] ? '1' : ta[0] < ta[1] ? '2' : 'X';
+    const ob = tb[0] > tb[1] ? '1' : tb[0] < tb[1] ? '2' : 'X';
+    let level;
+    if (ta[0] === tb[0] && ta[1] === tb[1]) { level = 'exact'; exact++; }
+    else if (oa === ob) { level = 'outcome'; outcome++; }
+    else { level = 'diff'; diff++; }
+    rows.push({ m, ta, tb, level });
+  });
+  return { exact, outcome, diff, rows };
+}
+
+function renderH2H() {
+  const sorted = VMDATA.players.slice().sort((a,b)=>a.localeCompare(b,'sv'));
+  if (!h2hA) h2hA = (selectedMatchdayPlayer && VMDATA.players.includes(selectedMatchdayPlayer)) ? selectedMatchdayPlayer : sorted[0];
+  if (!h2hB || h2hB === h2hA) h2hB = sorted.find(p => p !== h2hA);
+
+  const selStyle = "flex:1;min-width:0;padding:9px 30px 9px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:'DM Sans',sans-serif;outline:none;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"%23a0c4e0\" stroke-width=\"2\"><path d=\"M6 9l6 6 6-6\"/></svg>');background-repeat:no-repeat;background-position:right 10px center;cursor:pointer;";
+
+  const selectors = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:1rem;">
+      <select onchange="setH2H('a',this.value)" style="${selStyle}">${h2hPlayerOptions(h2hA)}</select>
+      <span style="color:var(--muted);font-size:13px;flex-shrink:0;">vs</span>
+      <select onchange="setH2H('b',this.value)" style="${selStyle}">${h2hPlayerOptions(h2hB)}</select>
+    </div>`;
+
+  if (h2hA === h2hB) {
+    return `<p class="section-title">Head-to-head</p>${selectors}<p style="font-size:13px;color:var(--muted);text-align:center;padding:1.5rem;">Välj två olika personer.</p>`;
+  }
+
+  const r = computeH2H(h2hA, h2hB);
+  const total = r.exact + r.outcome + r.diff;
+  const agreePct = total ? Math.round((r.exact + r.outcome) / total * 100) : 0;
+
+  const stat = (label, val, col) => `<div style="flex:1;text-align:center;padding:10px 4px;background:var(--surface);border:1px solid var(--border);border-radius:10px;">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:1.6rem;color:${col};line-height:1;">${val}</div>
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-top:4px;">${label}</div>
+    </div>`;
+
+  const summary = `<div style="display:flex;gap:8px;margin-bottom:6px;">
+      ${stat('Exakt lika', r.exact, 'var(--yellow)')}
+      ${stat('Samma utfall', r.outcome, 'var(--text)')}
+      ${stat('Olika', r.diff, 'var(--muted)')}
+    </div>
+    <p style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:14px;">Överens om utfallet i ${agreePct}% av gruppspelsmatcherna</p>`;
+
+  const colFor = { exact: 'var(--yellow)', outcome: 'rgba(255,255,255,0.25)', diff: 'transparent' };
+  const tipColFor = { exact: 'var(--yellow)', outcome: 'var(--text)', diff: 'var(--muted)' };
+  const rowsHtml = r.rows.map(row => {
+    const c = colFor[row.level];
+    const tc = tipColFor[row.level];
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);border-left:3px solid ${c};">
+        <span style="width:44px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:1.05rem;color:${tc};">${row.ta[0]}–${row.ta[1]}</span>
+        <span style="flex:1;font-size:11px;color:var(--muted);text-align:center;line-height:1.3;">${row.m.h} – ${row.m.a}</span>
+        <span style="width:44px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:1.05rem;color:${tc};">${row.tb[0]}–${row.tb[1]}</span>
+      </div>`;
+  }).join('');
+
+  return `<p class="section-title">Head-to-head</p>
+    ${selectors}
+    ${summary}
+    <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--yellow);font-weight:600;">
+        <span style="white-space:nowrap;">${h2hA}</span>
+        <span style="white-space:nowrap;">${h2hB}</span>
+      </div>
+      ${rowsHtml}
+    </div>`;
+}
+
+function setH2H(which, val) {
+  if (which === 'a') h2hA = val; else h2hB = val;
+  renderInsights();
+}
+
+function renderSlutspel() {
+  const pls = VMDATA.players;
+  const ko = KODATA.ko;
+  const N = pls.length;
+  const uniq = arr => [...new Set(arr)];
+
+  const champ = {};
+  pls.forEach(p => champ[p] = (BONUSDATA.bonus[p]||{})['Världsmästare'] || '');
+  const champC = {};
+  pls.forEach(p => { if (champ[p]) champC[champ[p]] = (champC[champ[p]]||0)+1; });
+
+  const finC = {}, sfC = {};
+  pls.forEach(p => { uniq(ko[p].final).forEach(t=>finC[t]=(finC[t]||0)+1); uniq(ko[p].sf).forEach(t=>sfC[t]=(sfC[t]||0)+1); });
+
+  const block = (title, inner) => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem 1.1rem;margin-bottom:12px;">
+      <div style="font-size:13px;color:var(--yellow);font-weight:500;margin-bottom:10px;">${title}</div>${inner}</div>`;
+  const groupByPlayer = list => {
+    const g = {};
+    list.forEach(({p,t}) => (g[p]=g[p]||[]).push(t));
+    return Object.entries(g).sort((a,b)=> a[0].localeCompare(b[0],'sv'));
+  };
+  const uniqueRows = list => {
+    const g = groupByPlayer(list);
+    if (!g.length) return '<p style="font-size:13px;color:var(--muted);">Ingen sitter ensam här.</p>';
+    return g.map(([p,teams]) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:13px;color:var(--text);">${p}</span>
+        <span style="font-size:13px;color:var(--yellow);text-align:right;">${teams.sort((a,b)=>a.localeCompare(b,'sv')).join(', ')}</span>
+      </div>`).join('');
+  };
+
+  // Unique champion & finalist
+  const uniqueChamp = pls.filter(p => champ[p] && champC[champ[p]]===1).map(p => ({ p, t:champ[p] }));
+  const uniqueFin = [];
+  pls.forEach(p => uniq(ko[p].final).forEach(t => { if (finC[t]===1) uniqueFin.push({ p, t }); }));
+
+  // Consensus top4 semifinalists
+  const sfRanked = Object.entries(sfC).sort((a,b)=> b[1]-a[1] || a[0].localeCompare(b[0],'sv'));
+  const top4 = sfRanked.slice(0,4).map(e=>e[0]);
+
+  // Mot strömmen: ALL players' semifinalists, deviating teams in gold, sorted by deviation
+  const devList = pls.map(p => ({ p, sf: uniq(ko[p].sf), overlap: uniq(ko[p].sf).filter(t=>top4.includes(t)).length }))
+    .sort((a,b)=> a.overlap-b.overlap || a.p.localeCompare(b.p,'sv'));
+  const devRows = devList.map(d => {
+    const teams = d.sf.slice().sort((a,b)=>a.localeCompare(b,'sv')).map(t =>
+      `<span style="color:${top4.includes(t)?'var(--muted)':'var(--yellow)'};">${t}</span>`).join(', ');
+    return `<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:13px;color:var(--text);flex-shrink:0;">${d.p}</span>
+        <span style="font-size:12px;text-align:right;">${teams}</span>
+      </div>`;
+  }).join('');
+
+  // Vanligaste finalen
+  const finFreq = {};
+  pls.forEach(p => { const key = uniq(ko[p].final).slice().sort((a,b)=>a.localeCompare(b,'sv')).join(' – '); finFreq[key]=(finFreq[key]||0)+1; });
+  const finRows = Object.entries(finFreq).sort((a,b)=> b[1]-a[1] || a[0].localeCompare(b[0],'sv')).slice(0,6).map(([f,cnt]) =>
+    `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);">
+        <span style="flex:1;font-size:13px;color:var(--text);">${f}</span>
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:1.1rem;color:var(--yellow);">${cnt}</span>
+      </div>`).join('');
+
+  // Vanligaste finallagen
+  const finTeamRows = Object.entries(finC).sort((a,b)=> b[1]-a[1] || a[0].localeCompare(b[0],'sv')).slice(0,6).map(([t,cnt]) =>
+    `<span style="display:inline-flex;gap:6px;padding:4px 10px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid var(--border);font-size:12px;margin:0 4px 6px 0;">
+        <span style="color:var(--text);">${t}</span><span style="color:var(--yellow);">${cnt}</span></span>`).join('');
+
+  // Vanligaste världsmästaren
+  const champRows = Object.entries(champC).sort((a,b)=> b[1]-a[1] || a[0].localeCompare(b[0],'sv')).map(([t,cnt]) =>
+    `<span style="display:inline-flex;gap:6px;padding:4px 10px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid var(--border);font-size:12px;margin:0 4px 6px 0;">
+        <span style="color:var(--text);">${t}</span><span style="color:var(--yellow);">${cnt}</span></span>`).join('');
+
+  // ── Lag vidare till slutspel (R32) ──
+  const advC = {};
+  pls.forEach(p => uniq(ko[p].r32).forEach(t => advC[t] = (advC[t]||0)+1));
+  const advRanked = Object.entries(advC).sort((a,b)=> b[1]-a[1] || a[0].localeCompare(b[0],'sv'));
+  const consensus32 = advRanked.slice(0,32).map(e=>e[0]);
+  const advRows = advRanked.map(([team,cnt]) => {
+    const unanimous = cnt === N;
+    return `<div style="padding:6px 0;border-bottom:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="flex:1;font-size:13px;color:${unanimous?'var(--yellow)':'var(--text)'};">${team}</span>
+          <span style="font-size:12px;color:var(--muted);">${cnt}/${N}</span>
+        </div>
+        <div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:5px;overflow:hidden;">
+          <div style="height:100%;width:${Math.round(cnt/N*100)}%;background:${unanimous?'var(--yellow)':'rgba(255,255,255,0.25)'};"></div>
+        </div>
+      </div>`;
+  }).join('');
+
+  const advDev = pls.map(p => {
+    const s = uniq(ko[p].r32);
+    const overlap = s.filter(t => consensus32.includes(t)).length;
+    const odd = s.filter(t => !consensus32.includes(t)).sort((a,b)=>a.localeCompare(b,'sv'));
+    return { p, overlap, odd };
+  }).sort((a,b)=> a.overlap-b.overlap || a.p.localeCompare(b.p,'sv'));
+  const advDevRows = advDev.slice(0,8).map(d => `<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span style="font-size:13px;color:var(--text);flex-shrink:0;">${d.p}</span>
+      <span style="font-size:12px;text-align:right;color:var(--yellow);">${d.odd.length ? d.odd.join(', ') : '–'}</span>
+    </div>`).join('');
+
+  // ── Sverige ──
+  const stages = [
+    ['final', 5, 'Final'], ['sf', 4, 'Semifinal'], ['qf', 3, 'Kvartsfinal'],
+    ['r16', 2, 'Åttondelsfinal'], ['r32', 1, 'Sextondelsfinal']
+  ];
+  const sweDepth = p => {
+    if (champ[p] === 'Sverige') return { d:6, label:'Världsmästare' };
+    for (const [key, d, label] of stages) {
+      if (uniq(ko[p][key]).includes('Sverige')) return { d, label };
+    }
+    return { d:0, label:'Ut i gruppspelet' };
+  };
+  const sweAll = pls.map(p => ({ p, ...sweDepth(p) }));
+  const advance = sweAll.filter(s => s.d >= 1);
+  const noAdvance = sweAll.filter(s => s.d === 0).map(s => s.p).sort((a,b)=>a.localeCompare(b,'sv'));
+  const maxD = Math.max(...sweAll.map(s => s.d));
+  const longest = sweAll.filter(s => s.d === maxD).sort((a,b)=>a.p.localeCompare(b.p,'sv'));
+  const longestLabel = longest[0].label;
+
+  const sweCount = `<div style="display:flex;align-items:baseline;gap:8px;">
+      <span style="font-family:'Bebas Neue',sans-serif;font-size:2rem;color:var(--yellow);line-height:1;">${advance.length}</span>
+      <span style="font-size:13px;color:var(--muted);">av ${N} tror Sverige tar sig till slutspel</span>
+    </div>`;
+  const noAdvRows = noAdvance.length
+    ? `<div style="display:flex;flex-wrap:wrap;gap:6px;">${noAdvance.map(p=>`<span style="padding:4px 10px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid var(--border);font-size:13px;color:var(--text);">${p}</span>`).join('')}</div>`
+    : '<p style="font-size:13px;color:var(--muted);">Alla tror Sverige går vidare!</p>';
+  const longestRow = `<div style="display:flex;justify-content:space-between;gap:8px;">
+      <span style="font-size:14px;color:var(--text);">${longest.map(s=>s.p).join(', ')}</span>
+      <span style="font-size:13px;color:var(--yellow);">${longestLabel}</span>
+    </div>`;
+
+  return `<p class="section-title">Slutspel</p>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">Baserat på allas slutspelsträd.</p>
+    ${block('Ensam om sin världsmästare 🏆', uniqueRows(uniqueChamp))}
+    ${block('Ensam om en finalist', uniqueRows(uniqueFin))}
+    ${block('Mest mot strömmen i slutspelet <span style="color:var(--muted);font-weight:400;font-size:11px;">(gult = avvikande lag)</span>', devRows)}
+    ${block('Vanligaste finalen', finRows)}
+    ${block('Vanligaste finallagen', finTeamRows)}
+    ${block('Vanligaste världsmästaren', champRows)}
+    ${block('Avviker mest från normen – lag vidare <span style="color:var(--muted);font-weight:400;font-size:11px;">(gult = avvikande lag)</span>', advDevRows)}
+    ${block('Hur många tippar Sverige vidare till slutspel?', sweCount)}
+    ${block('Vem tippar inte Sverige vidare till slutspel?', noAdvRows)}
+    ${block('Vem tippar Sverige längst?', longestRow)}`;
+}
+
+function renderBonus() {
+  const pls = VMDATA.players;
+  const cats = BONUSDATA.categories;
+  const labels = BONUSDATA.labels;
+  const B = BONUSDATA.bonus;
+
+  // Per-player count of unique (lone) answers
+  const uniqCount = {}; pls.forEach(p => uniqCount[p]=0);
+  cats.forEach(cat => {
+    const counts = {};
+    pls.forEach(p => { const a=B[p][cat]; if(a) counts[a]=(counts[a]||0)+1; });
+    pls.forEach(p => { const a=B[p][cat]; if(a && counts[a]===1) uniqCount[p]++; });
+  });
+  const bravest = pls.slice().sort((a,b)=> uniqCount[b]-uniqCount[a] || a.localeCompare(b,'sv'))[0];
+
+  const blocks = cats.map((cat, ci) => {
+    const counts = {};
+    pls.forEach(p => { const a=B[p][cat]; if(!a) return; (counts[a]=counts[a]||[]).push(p); });
+    // sort answers: most picked first, then alpha
+    const entries = Object.entries(counts).sort((a,b)=> b[1].length-a[1].length || a[0].localeCompare(b[0],'sv'));
+    const rows = entries.map(([ans, who]) => {
+      const lone = who.length === 1;
+      return `<div style="display:flex;align-items:baseline;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
+          <span style="min-width:24px;font-family:'Bebas Neue',sans-serif;font-size:1rem;color:${lone?'var(--yellow)':'var(--muted)'};">${who.length}</span>
+          <span style="flex:1;font-size:13px;color:var(--text);">${ans}${lone?' <span style="color:var(--yellow);font-size:11px;">★ ensam</span>':''}</span>
+          <span style="flex:1;font-size:11px;color:var(--muted);text-align:right;">${who.join(', ')}</span>
+        </div>`;
+    }).join('');
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem 1.1rem;margin-bottom:12px;">
+        <div style="font-size:14px;color:var(--yellow);font-weight:500;margin-bottom:8px;">${labels[ci]}</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">${cat}</div>
+        ${rows}
+      </div>`;
+  }).join('');
+
+  return `<p class="section-title">Bonusfrågor</p>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">Allas svar på bonusfrågorna – unika svar markeras i gult.</p>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Modigaste bonustipparen</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:1.35rem;color:var(--yellow);line-height:1.05;">${bravest}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:3px;">${uniqCount[bravest]} unika svar ingen annan vågade</div>
+    </div>
+    ${blocks}`;
+}
+
+function renderKuriosa() {
+  const pls = VMDATA.players;
+  const G = groupMatches();
+  const N = G.length;
+  const out = t => t[0] > t[1] ? '1' : t[0] < t[1] ? '2' : 'X';
+  const byName = (a,b) => a.name.localeCompare(b.name,'sv');
+
+  // Per-player aggregates
+  const agg = pls.map(p => {
+    let goals=0, draws=0, home=0, away=0;
+    G.forEach(m => {
+      const t = VMDATA.tips[p][String(m.n)];
+      goals += t[0]+t[1];
+      const o = out(t);
+      if (o==='X') draws++; else if (o==='1') home++; else away++;
+    });
+    return { name:p, goals, draws, home, away };
+  });
+
+  // Deviations (against majority outcome) per player
+  const dev = {}; pls.forEach(p => dev[p]=0);
+  G.forEach(m => {
+    const num = String(m.n);
+    const c = {'1':0,'X':0,'2':0};
+    pls.forEach(p => c[out(VMDATA.tips[p][num])]++);
+    const mx = Math.max(c['1'],c['X'],c['2']);
+    pls.forEach(p => { if (c[out(VMDATA.tips[p][num])] < mx) dev[p]++; });
+  });
+  const devArr = pls.map(p => ({ name:p, dev:dev[p] }));
+
+  // Pairs: outcome agreement % and exact-identical count
+  let mostAlike=null, mostDiff=null, twins=null;
+  for (let i=0;i<pls.length;i++) for (let j=i+1;j<pls.length;j++) {
+    const a=pls[i], b=pls[j];
+    let same=0, exact=0;
+    G.forEach(m => {
+      const ta=VMDATA.tips[a][String(m.n)], tb=VMDATA.tips[b][String(m.n)];
+      if (out(ta)===out(tb)) same++;
+      if (ta[0]===tb[0] && ta[1]===tb[1]) exact++;
+    });
+    const pct = same/N*100;
+    if (!mostAlike || pct>mostAlike.pct) mostAlike={a,b,pct};
+    if (!mostDiff || pct<mostDiff.pct) mostDiff={a,b,pct};
+    if (!twins || exact>twins.exact) twins={a,b,exact};
+  }
+
+  // Matches: consensus, split, avg goals
+  const matchStats = G.map(m => {
+    const num=String(m.n);
+    const c={'1':0,'X':0,'2':0}; let goals=0;
+    pls.forEach(p => { const t=VMDATA.tips[p][num]; c[out(t)]++; goals+=t[0]+t[1]; });
+    return { m, c, consensus:Math.max(c['1'],c['X'],c['2']), avg:goals/pls.length };
+  });
+  const uni = matchStats.slice().sort((a,b)=>b.consensus-a.consensus || a.m.n-b.m.n)[0];
+  const div = matchStats.slice().sort((a,b)=>a.consensus-b.consensus || a.m.n-b.m.n)[0];
+  const highScoring = matchStats.slice().sort((a,b)=>b.avg-a.avg || a.m.n-b.m.n)[0];
+  const lowScoring = matchStats.slice().sort((a,b)=>a.avg-b.avg || a.m.n-b.m.n)[0];
+
+  // Craziest scoreline & biggest goal diff (single tips)
+  let crazy=null, bigdiff=null;
+  pls.forEach(p => G.forEach(m => {
+    const t=VMDATA.tips[p][String(m.n)];
+    const tot=t[0]+t[1], df=Math.abs(t[0]-t[1]);
+    if (!crazy || tot>crazy.tot) crazy={p,m,t,tot};
+    if (!bigdiff || df>bigdiff.df) bigdiff={p,m,t,df};
+  }));
+
+  // Most common exact scoreline overall + average goals
+  const scCount={}; let totalGoals=0;
+  pls.forEach(p => G.forEach(m => { const t=VMDATA.tips[p][String(m.n)]; const k=t[0]+'–'+t[1]; scCount[k]=(scCount[k]||0)+1; totalGoals+=t[0]+t[1]; }));
+  const topScore = Object.entries(scCount).sort((a,b)=>b[1]-a[1])[0];
+  const avgGoals = (totalGoals/(pls.length*N)).toFixed(2);
+
+  const top = (arr, key, dir='max') => {
+    const s = arr.slice().sort((a,b)=> dir==='max' ? (b[key]-a[key] || byName(a,b)) : (a[key]-b[key] || byName(a,b)));
+    return s[0];
+  };
+  const målkalas=top(agg,'goals','max'), försvar=top(agg,'goals','min');
+  const kryssK=top(agg,'draws','max'), avgör=top(agg,'draws','min');
+  const wild=top(devArr,'dev','max'), följsam=top(devArr,'dev','min');
+  const hemma=top(agg,'home','max'), borta=top(agg,'away','max');
+
+  const facts = [
+    { t:'Tänker mest lika', v:`${mostAlike.a} & ${mostAlike.b}`, s:`${Math.round(mostAlike.pct)}% samma utfall` },
+    { t:'Mest oense', v:`${mostDiff.a} & ${mostDiff.b}`, s:`${Math.round(mostDiff.pct)}% samma utfall` },
+    { t:'Tvillingtipsen', v:`${twins.a} & ${twins.b}`, s:`${twins.exact} exakt lika tips` },
+    { t:'Målkalaset', v:målkalas.name, s:`${målkalas.goals} mål totalt` },
+    { t:'Försvarslåset', v:försvar.name, s:`bara ${försvar.goals} mål totalt` },
+    { t:'Kryss-kungen', v:kryssK.name, s:`${kryssK.draws} kryss` },
+    { t:'Mest avgörande', v:avgör.name, s:`bara ${avgör.draws} kryss` },
+    { t:'Störst wildcard', v:wild.name, s:`avvek ${wild.dev} ggr från majoriteten` },
+    { t:'Mest följsam', v:följsam.name, s:`avvek bara ${följsam.dev} ggr` },
+    { t:'Tror på hemmalagen', v:hemma.name, s:`${hemma.home} hemmasegrar tippade` },
+    { t:'Bortaspecialisten', v:borta.name, s:`${borta.away} bortasegrar tippade` },
+    { t:'Mest splittrade matchen', v:`${div.m.h}–${div.m.a}`, s:`1: ${div.c['1']} · X: ${div.c['X']} · 2: ${div.c['2']}` },
+    { t:'Måltätaste matchen', v:`${highScoring.m.h}–${highScoring.m.a}`, s:`snitt ${highScoring.avg.toFixed(1)} mål` },
+    { t:'Magraste matchen', v:`${lowScoring.m.h}–${lowScoring.m.a}`, s:`snitt ${lowScoring.avg.toFixed(1)} mål` },
+    { t:'Största målskillnaden', v:`${bigdiff.t[0]}–${bigdiff.t[1]}`, s:`${bigdiff.p}: ${bigdiff.m.h}–${bigdiff.m.a}` },
+  ];
+
+  const cards = facts.map(f => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">${f.t}</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:1.35rem;color:var(--yellow);line-height:1.05;">${f.v}</div>
+      ${f.s?`<div style="font-size:12px;color:var(--muted);margin-top:3px;">${f.s}</div>`:''}
+    </div>`).join('');
+
+  // Wildcard ranking table (moved into Gruppspel)
+  const ranked = computeWildcard();
+  const maxPts = ranked[0] ? ranked[0].pts : 1;
+  const wcRows = ranked.map((p, i) => {
+    const pct = maxPts > 0 ? Math.round(p.pts / maxPts * 100) : 0;
+    const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1);
+    return `<div style="padding:10px 14px;border-bottom:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="width:28px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:1.1rem;color:${i<3?'var(--yellow)':'var(--muted)'};">${medal}</span>
+          <span style="flex:1;font-size:14px;color:var(--text);">${p.name}</span>
+          <span style="font-size:12px;color:var(--muted);">${p.bold} avvik.${p.solo?` · ${p.solo} ensam`:''}</span>
+          <span style="font-family:'Bebas Neue',sans-serif;font-size:1.2rem;color:var(--yellow);min-width:42px;text-align:right;">${Math.round(p.pts)}</span>
+        </div>
+        <div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:8px;overflow:hidden;">
+          <div style="height:100%;width:${pct}%;background:var(--yellow);"></div>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `<p class="section-title">Gruppspel</p>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">Fakta uträknade ur allas gruppspelstips.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:1.5rem;">${cards}</div>
+    <p class="section-title">Wildcard-tipparen</p>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px;max-width:520px;">Vem tippar mest mot strömmen? Poäng ges för att avvika från majoritetens utfall — mest när man är ensam — plus en mindre bonus för ovanliga exakta resultat.</p>
+    <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface);">${wcRows}</div>`;
+}
+// ── End Datainsikter ────────────────────────────────────────────
+
+
 const VMDATA = {"schedule":[{"n":1,"d":"2026-06-11","h":"Mexiko","a":"Sydafrika"},{"n":2,"d":"2026-06-12","h":"Sydkorea","a":"Czechia"},{"n":3,"d":"2026-06-12","h":"Kanada","a":"Bosnien-Herzigovina"},{"n":4,"d":"2026-06-13","h":"USA","a":"Paraguay"},{"n":5,"d":"2026-06-14","h":"Haiti","a":"Skottland"},{"n":6,"d":"2026-06-14","h":"Australien","a":"Turkiet"},{"n":7,"d":"2026-06-14","h":"Brasilien","a":"Marocko"},{"n":8,"d":"2026-06-13","h":"Qatar","a":"Schweiz"},{"n":9,"d":"2026-06-15","h":"Elfenbenskusten","a":"Ecuador"},{"n":10,"d":"2026-06-14","h":"Tyskland","a":"Curaçao"},{"n":11,"d":"2026-06-14","h":"Nederländerna","a":"Japan"},{"n":12,"d":"2026-06-15","h":"Sverige","a":"Tunisien"},{"n":13,"d":"2026-06-16","h":"Saudiarabien","a":"Uruguay"},{"n":14,"d":"2026-06-15","h":"Spanien","a":"Kap Verde"},{"n":15,"d":"2026-06-16","h":"Iran","a":"Nya Zeeland"},{"n":16,"d":"2026-06-15","h":"Belgien","a":"Egypten"},{"n":17,"d":"2026-06-16","h":"Frankrike","a":"Senegal"},{"n":18,"d":"2026-06-17","h":"Irak","a":"Norge"},{"n":19,"d":"2026-06-17","h":"Argentina","a":"Algeriet"},{"n":20,"d":"2026-06-17","h":"Österrike","a":"Jordanien"},{"n":21,"d":"2026-06-18","h":"Ghana","a":"Panama"},{"n":22,"d":"2026-06-17","h":"England","a":"Kroatien"},{"n":23,"d":"2026-06-17","h":"Portugal","a":"Kongo"},{"n":24,"d":"2026-06-18","h":"Uzbekistan","a":"Colombia"},{"n":25,"d":"2026-06-18","h":"Czechia","a":"Sydafrika"},{"n":26,"d":"2026-06-18","h":"Schweiz","a":"Bosnien-Herzigovina"},{"n":27,"d":"2026-06-19","h":"Kanada","a":"Qatar"},{"n":28,"d":"2026-06-19","h":"Mexiko","a":"Sydkorea"},{"n":29,"d":"2026-06-20","h":"Brasilien","a":"Haiti"},{"n":30,"d":"2026-06-20","h":"Skottland","a":"Marocko"},{"n":31,"d":"2026-06-20","h":"Turkiet","a":"Paraguay"},{"n":32,"d":"2026-06-19","h":"USA","a":"Australien"},{"n":33,"d":"2026-06-20","h":"Tyskland","a":"Elfenbenskusten"},{"n":34,"d":"2026-06-21","h":"Ecuador","a":"Curaçao"},{"n":35,"d":"2026-06-20","h":"Nederländerna","a":"Sverige"},{"n":36,"d":"2026-06-21","h":"Tunisien","a":"Japan"},{"n":37,"d":"2026-06-22","h":"Uruguay","a":"Kap Verde"},{"n":38,"d":"2026-06-21","h":"Spanien","a":"Saudiarabien"},{"n":39,"d":"2026-06-21","h":"Belgien","a":"Iran"},{"n":40,"d":"2026-06-22","h":"Nya Zeeland","a":"Egypten"},{"n":41,"d":"2026-06-23","h":"Norge","a":"Senegal"},{"n":42,"d":"2026-06-22","h":"Frankrike","a":"Irak"},{"n":43,"d":"2026-06-22","h":"Argentina","a":"Österrike"},{"n":44,"d":"2026-06-23","h":"Jordanien","a":"Algeriet"},{"n":45,"d":"2026-06-23","h":"England","a":"Ghana"},{"n":46,"d":"2026-06-24","h":"Panama","a":"Kroatien"},{"n":47,"d":"2026-06-23","h":"Portugal","a":"Uzbekistan"},{"n":48,"d":"2026-06-24","h":"Colombia","a":"Kongo"},{"n":49,"d":"2026-06-25","h":"Skottland","a":"Brasilien"},{"n":50,"d":"2026-06-25","h":"Marocko","a":"Haiti"},{"n":51,"d":"2026-06-24","h":"Schweiz","a":"Kanada"},{"n":52,"d":"2026-06-24","h":"Bosnien-Herzigovina","a":"Qatar"},{"n":53,"d":"2026-06-25","h":"Czechia","a":"Mexiko"},{"n":54,"d":"2026-06-25","h":"Sydafrika","a":"Sydkorea"},{"n":55,"d":"2026-06-25","h":"Curaçao","a":"Elfenbenskusten"},{"n":56,"d":"2026-06-25","h":"Ecuador","a":"Tyskland"},{"n":57,"d":"2026-06-26","h":"Japan","a":"Sverige"},{"n":58,"d":"2026-06-26","h":"Tunisien","a":"Nederländerna"},{"n":59,"d":"2026-06-26","h":"Turkiet","a":"USA"},{"n":60,"d":"2026-06-26","h":"Paraguay","a":"Australien"},{"n":61,"d":"2026-06-26","h":"Norge","a":"Frankrike"},{"n":62,"d":"2026-06-26","h":"Senegal","a":"Irak"},{"n":63,"d":"2026-06-27","h":"Egypten","a":"Iran"},{"n":64,"d":"2026-06-27","h":"Nya Zeeland","a":"Belgien"},{"n":65,"d":"2026-06-27","h":"Kap Verde","a":"Saudiarabien"},{"n":66,"d":"2026-06-27","h":"Uruguay","a":"Spanien"},{"n":67,"d":"2026-06-27","h":"Panama","a":"England"},{"n":68,"d":"2026-06-27","h":"Kroatien","a":"Ghana"},{"n":69,"d":"2026-06-28","h":"Algeriet","a":"Österrike"},{"n":70,"d":"2026-06-28","h":"Jordanien","a":"Argentina"},{"n":71,"d":"2026-06-28","h":"Colombia","a":"Portugal"},{"n":72,"d":"2026-06-28","h":"Kongo","a":"Uzbekistan"},{"n":73,"d":"2026-06-28","h":"Sydkorea","a":"Kanada"},{"n":74,"d":"2026-06-29","h":"Tyskland","a":"Turkiet"},{"n":75,"d":"2026-06-30","h":"Nederländerna","a":"Skottland"},{"n":76,"d":"2026-06-29","h":"Brasilien","a":"Sverige"},{"n":77,"d":"2026-06-30","h":"Frankrike","a":"Japan"},{"n":78,"d":"2026-06-30","h":"Elfenbenskusten","a":"Norge"},{"n":79,"d":"2026-07-01","h":"Mexiko","a":"Marocko"},{"n":80,"d":"2026-07-01","h":"England","a":"Kongo"},{"n":81,"d":"2026-07-02","h":"Australien","a":"Bosnien-Herzigovina"},{"n":82,"d":"2026-07-01","h":"Belgien","a":"Ecuador"},{"n":83,"d":"2026-07-03","h":"Colombia","a":"Kroatien"},{"n":84,"d":"2026-07-02","h":"Spanien","a":"Österrike"},{"n":85,"d":"2026-07-03","h":"Schweiz","a":"Nya Zeeland"},{"n":86,"d":"2026-07-04","h":"Argentina","a":"Uruguay"},{"n":87,"d":"2026-07-04","h":"Portugal","a":"Senegal"},{"n":88,"d":"2026-07-03","h":"USA","a":"Egypten"},{"n":89,"d":"2026-07-04","h":"Tyskland","a":"Frankrike"},{"n":90,"d":"2026-07-04","h":"Sydkorea","a":"Nederländerna"},{"n":91,"d":"2026-07-05","h":"Brasilien","a":"Norge"},{"n":92,"d":"2026-07-06","h":"Mexiko","a":"England"},{"n":93,"d":"2026-07-06","h":"Kroatien","a":"Spanien"},{"n":94,"d":"2026-07-07","h":"Australien","a":"Belgien"},{"n":95,"d":"2026-07-07","h":"Argentina","a":"USA"},{"n":96,"d":"2026-07-07","h":"Schweiz","a":"Portugal"},{"n":97,"d":"2026-07-09","h":"Frankrike","a":"Nederländerna"},{"n":98,"d":"2026-07-10","h":"Spanien","a":"Belgien"},{"n":99,"d":"2026-07-11","h":"Brasilien","a":"England"},{"n":100,"d":"2026-07-12","h":"Argentina","a":"Portugal"},{"n":101,"d":"2026-07-14","h":"Frankrike","a":"Spanien"},{"n":102,"d":"2026-07-15","h":"England","a":"Argentina"},{"n":103,"d":"2026-07-18","h":"Spanien","a":"Argentina"},{"n":104,"d":"2026-07-19","h":"Frankrike","a":"England"}],"tips":{"Adam":{"1":[2,0,1],"2":[1,0,1],"25":[2,1,1],"28":[3,1,1],"53":[0,3,2],"54":[0,2,2],"3":[1,1,"X"],"8":[0,4,2],"26":[1,0,1],"27":[2,0,1],"51":[2,1,1],"52":[2,0,1],"7":[3,0,1],"5":[0,4,2],"30":[2,1,1],"29":[5,0,1],"49":[1,3,2],"50":[2,0,1],"4":[1,0,1],"6":[1,1,"X"],"32":[1,2,2],"31":[1,0,1],"59":[1,3,2],"60":[1,2,2],"10":[4,0,1],"9":[1,0,1],"33":[2,0,1],"34":[2,0,1],"55":[0,3,2],"56":[1,3,2],"11":[3,1,1],"12":[2,0,1],"35":[1,0,1],"36":[0,2,2],"57":[1,2,2],"58":[0,3,2],"16":[2,0,1],"15":[0,1,2],"39":[4,0,1],"40":[1,2,2],"63":[3,1,1],"64":[0,2,2],"14":[5,0,1],"13":[0,3,2],"38":[4,0,1],"37":[3,0,1],"65":[0,0,"X"],"66":[0,2,2],"17":[2,0,1],"18":[1,2,2],"42":[4,0,1],"41":[3,1,1],"61":[1,3,2],"62":[2,0,1],"19":[4,0,1],"20":[3,0,1],"43":[3,1,1],"44":[1,2,2],"69":[0,2,2],"70":[0,4,2],"23":[2,0,1],"24":[0,3,2],"47":[3,0,1],"48":[2,1,1],"71":[1,2,2],"72":[1,0,1],"22":[3,1,1],"21":[2,0,1],"45":[3,0,1],"46":[0,2,2],"67":[0,3,2],"68":[2,0,1],"73":[2,1,1],"74":[3,1,1],"75":[2,0,1],"76":[3,0,1],"77":[2,0,1],"78":[1,2,2],"79":[3,0,1],"80":[4,0,1],"81":[1,0,1],"82":[2,1,1],"83":[1,2,2],"84":[3,2,1],"85":[2,0,1],"86":[1,0,1],"87":[2,1,1],"88":[1,0,1],"89":[1,3,2],"90":[0,2,2],"91":[2,0,1],"92":[1,3,2],"93":[0,2,2],"94":[0,2,2],"95":[3,0,1],"96":[1,2,2],"97":[2,1,1],"98":[2,0,1],"99":[1,3,2],"100":[2,0,1],"101":[2,1,1],"102":[1,0,1],"103":[2,0,1],"104":[3,1,1]},"Alexander S":{"1":[1,0,1],"2":[2,1,1],"25":[2,0,1],"28":[2,2,"X"],"53":[1,3,2],"54":[1,3,2],"3":[2,1,1],"8":[0,3,2],"26":[3,1,1],"27":[2,0,1],"51":[1,0,1],"52":[2,1,1],"7":[2,1,1],"5":[0,2,2],"30":[1,1,"X"],"29":[4,0,1],"49":[1,3,2],"50":[2,0,1],"4":[3,0,1],"6":[1,2,2],"32":[1,0,1],"31":[2,1,1],"59":[1,1,"X"],"60":[1,1,"X"],"10":[4,0,1],"9":[1,1,"X"],"33":[3,1,1],"34":[3,0,1],"55":[0,2,2],"56":[0,2,2],"11":[2,0,1],"12":[2,1,1],"35":[2,2,"X"],"36":[0,2,2],"57":[0,2,2],"58":[0,1,2],"16":[3,1,1],"15":[2,0,1],"39":[1,0,1],"40":[1,1,"X"],"63":[2,2,"X"],"64":[1,2,2],"14":[4,0,1],"13":[0,2,2],"38":[3,0,1],"37":[2,0,1],"65":[1,2,2],"66":[1,3,2],"17":[3,1,1],"18":[0,2,2],"42":[2,0,1],"41":[2,1,1],"61":[1,2,2],"62":[1,0,1],"19":[2,0,1],"20":[2,0,1],"43":[2,1,1],"44":[0,2,2],"69":[1,1,"X"],"70":[0,3,2],"23":[3,0,1],"24":[0,2,2],"47":[3,0,1],"48":[2,1,1],"71":[1,3,2],"72":[2,2,"X"],"22":[3,1,1],"21":[2,0,1],"45":[2,0,1],"46":[0,2,2],"67":[0,4,2],"68":[1,0,1],"73":[1,1,"X"],"74":[3,1,1],"75":[2,1,1],"76":[2,2,"X"],"77":[3,1,1],"78":[0,2,2],"79":[1,2,2],"80":[3,0,1],"81":[2,0,1],"82":[2,1,1],"83":[1,3,2],"84":[3,1,1],"85":[2,0,1],"86":[2,0,1],"87":[2,0,1],"88":[1,0,1],"89":[1,2,2],"90":[0,2,2],"91":[3,1,1],"92":[1,3,2],"93":[0,2,2],"94":[1,2,2],"95":[2,0,1],"96":[2,1,1],"97":[3,0,1],"98":[2,0,1],"99":[2,3,2],"100":[2,1,1],"101":[1,3,2],"102":[2,0,1],"103":[2,1,1],"104":[1,3,2]},"Anton":{"1":[1,1,"X"],"2":[1,2,2],"25":[1,0,1],"28":[2,1,1],"53":[2,2,"X"],"54":[0,2,2],"3":[1,1,"X"],"8":[0,2,2],"26":[1,0,1],"27":[1,1,"X"],"51":[3,1,1],"52":[1,0,1],"7":[1,2,2],"5":[0,2,2],"30":[1,1,"X"],"29":[3,0,1],"49":[1,2,2],"50":[4,0,1],"4":[1,1,"X"],"6":[0,1,2],"32":[2,1,1],"31":[2,2,"X"],"59":[1,1,"X"],"60":[1,1,"X"],"10":[5,0,1],"9":[0,2,2],"33":[3,1,1],"34":[3,0,1],"55":[1,2,2],"56":[2,2,"X"],"11":[1,1,"X"],"12":[1,1,"X"],"35":[2,1,1],"36":[1,2,2],"57":[2,0,1],"58":[1,3,2],"16":[2,0,1],"15":[1,1,"X"],"39":[3,0,1],"40":[1,2,2],"63":[1,1,"X"],"64":[1,3,2],"14":[4,0,1],"13":[1,1,"X"],"38":[3,1,1],"37":[2,0,1],"65":[1,3,2],"66":[1,2,2],"17":[3,1,1],"18":[0,3,2],"42":[4,0,1],"41":[2,2,"X"],"61":[1,1,"X"],"62":[4,0,1],"19":[1,0,1],"20":[2,0,1],"43":[1,2,2],"44":[1,2,2],"69":[1,1,"X"],"70":[0,3,2],"23":[2,1,1],"24":[0,2,2],"47":[3,0,1],"48":[1,1,"X"],"71":[2,2,"X"],"72":[1,0,1],"22":[1,1,"X"],"21":[1,1,"X"],"45":[1,0,1],"46":[0,2,2],"67":[0,1,2],"68":[1,0,1],"73":[1,0,1],"74":[2,1,1],"75":[2,1,1],"76":[1,0,1],"77":[2,0,1],"78":[0,1,2],"79":[2,0,1],"80":[2,1,1],"81":[1,0,1],"82":[2,1,1],"83":[1,1,"X"],"84":[2,1,1],"85":[2,0,1],"86":[1,0,1],"87":[1,1,"X"],"88":[1,0,1],"89":[1,2,2],"90":[0,2,2],"91":[2,1,1],"92":[1,1,"X"],"93":[1,2,2],"94":[1,2,2],"95":[2,1,1],"96":[1,1,"X"],"97":[1,1,"X"],"98":[2,2,"X"],"99":[2,2,"X"],"100":[1,1,"X"],"101":[1,1,"X"],"102":[1,0,1],"103":[2,1,1],"104":[2,1,1]},"Elias":{"1":[2,0,1],"2":[2,1,1],"25":[1,0,1],"28":[1,1,"X"],"53":[0,1,2],"54":[0,2,2],"3":[2,1,1],"8":[0,2,2],"26":[2,0,1],"27":[1,0,1],"51":[1,1,"X"],"52":[1,0,1],"7":[1,1,"X"],"5":[0,1,2],"30":[0,1,2],"29":[2,0,1],"49":[1,2,2],"50":[2,0,1],"4":[1,1,"X"],"6":[0,1,2],"32":[2,0,1],"31":[0,0,"X"],"59":[2,1,1],"60":[1,0,1],"10":[2,0,1],"9":[0,1,2],"33":[2,1,1],"34":[2,0,1],"55":[0,2,2],"56":[1,1,"X"],"11":[1,0,1],"12":[1,1,"X"],"35":[2,1,1],"36":[0,1,2],"57":[2,0,1],"58":[0,1,2],"16":[2,0,1],"15":[1,0,1],"39":[2,1,1],"40":[0,1,2],"63":[1,1,"X"],"64":[0,2,2],"14":[2,0,1],"13":[0,2,2],"38":[2,0,1],"37":[1,0,1],"65":[1,0,1],"66":[1,2,2],"17":[2,1,1],"18":[0,3,2],"42":[4,0,1],"41":[2,0,1],"61":[1,1,"X"],"62":[2,0,1],"19":[2,0,1],"20":[1,0,1],"43":[1,1,"X"],"44":[1,2,2],"69":[2,1,1],"70":[0,2,2],"23":[1,0,1],"24":[0,1,2],"47":[2,0,1],"48":[2,0,1],"71":[1,1,"X"],"72":[1,1,"X"],"22":[1,0,1],"21":[1,0,1],"45":[2,0,1],"46":[0,2,2],"67":[0,2,2],"68":[1,1,"X"],"73":[1,0,1],"74":[1,0,1],"75":[1,0,1],"76":[1,0,1],"77":[1,0,1],"78":[0,0,"X"],"79":[0,0,"X"],"80":[1,0,1],"81":[0,0,"X"],"82":[1,0,1],"83":[1,0,1],"84":[1,0,1],"85":[1,0,1],"86":[1,0,1],"87":[1,0,1],"88":[1,0,1],"89":[0,1,2],"90":[0,1,2],"91":[1,0,1],"92":[0,1,2],"93":[0,1,2],"94":[0,1,2],"95":[1,0,1],"96":[0,1,2],"97":[1,0,1],"98":[1,0,1],"99":[0,1,2],"100":[1,0,1],"101":[1,0,1],"102":[1,0,1],"103":[1,0,1],"104":[1,0,1]},"Grabben":{"1":[2,0,1],"2":[1,1,"X"],"25":[1,0,1],"28":[1,0,1],"53":[2,2,"X"],"54":[0,1,2],"3":[1,0,1],"8":[0,1,2],"26":[2,0,1],"27":[2,1,1],"51":[1,1,"X"],"52":[0,0,"X"],"7":[2,0,1],"5":[0,1,2],"30":[1,2,2],"29":[3,0,1],"49":[1,2,2],"50":[2,1,1],"4":[1,1,"X"],"6":[1,1,"X"],"32":[0,0,"X"],"31":[1,0,1],"59":[2,0,1],"60":[1,2,2],"10":[3,0,1],"9":[1,2,2],"33":[2,1,1],"34":[1,0,1],"55":[0,1,2],"56":[1,2,2],"11":[1,0,1],"12":[1,0,1],"35":[2,1,1],"36":[1,2,2],"57":[1,1,"X"],"58":[0,2,2],"16":[1,1,"X"],"15":[0,1,2],"39":[1,0,1],"40":[1,2,2],"63":[0,0,"X"],"64":[0,2,2],"14":[4,1,1],"13":[0,3,2],"38":[1,0,1],"37":[3,0,1],"65":[0,0,"X"],"66":[1,2,2],"17":[2,0,1],"18":[0,1,2],"42":[4,1,1],"41":[0,1,2],"61":[1,2,2],"62":[1,0,1],"19":[2,0,1],"20":[2,1,1],"43":[3,2,1],"44":[0,0,"X"],"69":[1,0,1],"70":[0,2,2],"23":[2,1,1],"24":[1,3,2],"47":[3,0,1],"48":[2,1,1],"71":[2,2,"X"],"72":[0,0,"X"],"22":[1,1,"X"],"21":[1,0,1],"45":[2,1,1],"46":[0,2,2],"67":[1,1,"X"],"68":[1,0,1],"73":[1,1,"X"],"74":[2,0,1],"75":[2,1,1],"76":[1,0,1],"77":[2,0,1],"78":[2,0,1],"79":[1,1,"X"],"80":[2,0,1],"81":[1,0,1],"82":[1,0,1],"83":[2,2,"X"],"84":[2,0,1],"85":[2,1,1],"86":[3,2,1],"87":[1,0,1],"88":[2,3,2],"89":[1,2,2],"90":[0,0,"X"],"91":[2,0,1],"92":[0,1,2],"93":[1,2,2],"94":[0,1,2],"95":[3,1,1],"96":[0,0,"X"],"97":[2,2,"X"],"98":[2,1,1],"99":[0,0,"X"],"100":[2,0,1],"101":[1,0,1],"102":[1,1,"X"],"103":[0,1,2],"104":[2,1,1]},"Holm":{"1":[2,0,1],"2":[1,1,"X"],"25":[1,0,1],"28":[2,0,1],"53":[0,1,2],"54":[1,3,2],"3":[2,1,1],"8":[0,3,2],"26":[3,1,1],"27":[2,1,1],"51":[2,0,1],"52":[2,0,1],"7":[1,1,"X"],"5":[1,2,2],"30":[0,2,2],"29":[3,0,1],"49":[0,2,2],"50":[3,1,1],"4":[1,1,"X"],"6":[1,1,"X"],"32":[2,0,1],"31":[1,1,"X"],"59":[0,2,2],"60":[0,2,2],"10":[3,0,1],"9":[2,2,"X"],"33":[2,1,1],"34":[2,1,1],"55":[0,2,2],"56":[1,2,2],"11":[1,0,1],"12":[2,1,1],"35":[2,1,1],"36":[0,2,2],"57":[2,1,1],"58":[0,2,2],"16":[0,0,"X"],"15":[1,0,1],"39":[3,0,1],"40":[0,2,2],"63":[2,1,1],"64":[1,3,2],"14":[3,0,1],"13":[0,2,2],"38":[2,0,1],"37":[3,1,1],"65":[0,1,2],"66":[1,2,2],"17":[2,0,1],"18":[0,2,2],"42":[3,0,1],"41":[2,2,"X"],"61":[1,3,2],"62":[2,1,1],"19":[2,0,1],"20":[2,1,1],"43":[2,0,1],"44":[0,2,2],"69":[2,2,"X"],"70":[1,3,2],"23":[3,0,1],"24":[1,2,2],"47":[3,0,1],"48":[2,0,1],"71":[1,2,2],"72":[2,1,1],"22":[1,0,1],"21":[2,0,1],"45":[1,1,"X"],"46":[0,2,2],"67":[1,3,2],"68":[2,0,1],"73":[0,1,2],"74":[2,0,1],"75":[1,1,"X"],"76":[1,2,2],"77":[3,0,1],"78":[1,2,2],"79":[2,0,1],"80":[2,0,1],"81":[1,1,"X"],"82":[2,0,1],"83":[1,2,2],"84":[2,0,1],"85":[3,1,1],"86":[2,2,"X"],"87":[3,1,1],"88":[0,2,2],"89":[0,1,2],"90":[0,2,2],"91":[2,2,"X"],"92":[1,1,"X"],"93":[1,3,2],"94":[1,2,2],"95":[2,0,1],"96":[2,2,"X"],"97":[2,0,1],"98":[2,0,1],"99":[1,3,2],"100":[0,0,"X"],"101":[2,1,1],"102":[0,0,"X"],"103":[3,0,1],"104":[2,1,1]},"Kuffen":{"1":[2,0,1],"2":[1,0,1],"25":[2,1,1],"28":[2,1,1],"53":[0,2,2],"54":[0,1,2],"3":[1,0,1],"8":[0,3,2],"26":[2,0,1],"27":[2,0,1],"51":[1,0,1],"52":[2,1,1],"7":[2,0,1],"5":[1,2,2],"30":[1,2,2],"29":[3,0,1],"49":[0,2,2],"50":[2,0,1],"4":[1,0,1],"6":[0,2,2],"32":[2,0,1],"31":[2,1,1],"59":[0,0,"X"],"60":[2,0,1],"10":[3,0,1],"9":[1,2,2],"33":[2,0,1],"34":[3,0,1],"55":[0,2,2],"56":[1,2,2],"11":[1,0,1],"12":[2,0,1],"35":[2,1,1],"36":[0,2,2],"57":[0,1,2],"58":[0,3,2],"16":[2,0,1],"15":[1,0,1],"39":[3,0,1],"40":[0,1,2],"63":[2,1,1],"64":[0,2,2],"14":[4,0,1],"13":[0,3,2],"38":[3,0,1],"37":[3,0,1],"65":[1,2,2],"66":[0,1,2],"17":[2,0,1],"18":[0,2,2],"42":[3,0,1],"41":[1,0,1],"61":[0,1,2],"62":[2,1,1],"19":[2,0,1],"20":[2,0,1],"43":[2,1,1],"44":[1,2,2],"69":[0,0,"X"],"70":[0,3,2],"23":[2,0,1],"24":[0,2,2],"47":[3,0,1],"48":[1,0,1],"71":[1,2,2],"72":[2,0,1],"22":[1,1,"X"],"21":[2,1,1],"45":[2,0,1],"46":[0,2,2],"67":[0,3,2],"68":[2,0,1],"73":[1,1,"X"],"74":[2,0,1],"75":[1,0,1],"76":[1,0,1],"77":[2,0,1],"78":[0,1,2],"79":[1,0,1],"80":[2,0,1],"81":[1,0,1],"82":[1,0,1],"83":[1,1,"X"],"84":[2,0,1],"85":[1,0,1],"86":[2,1,1],"87":[2,0,1],"88":[2,1,1],"89":[2,1,1],"90":[0,1,2],"91":[2,0,1],"92":[1,2,2],"93":[0,2,2],"94":[0,1,2],"95":[2,1,1],"96":[0,1,2],"97":[1,0,1],"98":[2,1,1],"99":[0,1,2],"100":[1,0,1],"101":[0,1,2],"102":[1,0,1],"103":[0,1,2],"104":[2,1,1]},"Levin":{"1":[2,0,1],"2":[1,2,2],"25":[1,0,1],"28":[1,1,"X"],"53":[2,2,"X"],"54":[1,1,"X"],"3":[1,1,"X"],"8":[0,2,2],"26":[2,0,1],"27":[1,1,"X"],"51":[2,0,1],"52":[1,0,1],"7":[2,1,1],"5":[0,2,2],"30":[1,2,2],"29":[3,0,1],"49":[1,2,2],"50":[2,0,1],"4":[1,2,2],"6":[0,1,2],"32":[2,2,"X"],"31":[1,2,2],"59":[1,1,"X"],"60":[1,0,1],"10":[3,0,1],"9":[1,0,1],"33":[2,0,1],"34":[3,0,1],"55":[0,2,2],"56":[1,3,2],"11":[2,2,"X"],"12":[2,1,1],"35":[1,1,"X"],"36":[0,2,2],"57":[2,1,1],"58":[1,1,"X"],"16":[2,0,1],"15":[0,0,"X"],"39":[3,0,1],"40":[0,1,2],"63":[1,1,"X"],"64":[0,2,2],"14":[5,0,1],"13":[0,2,2],"38":[3,0,1],"37":[3,0,1],"65":[0,2,2],"66":[1,2,2],"17":[2,1,1],"18":[0,2,2],"42":[2,0,1],"41":[2,0,1],"61":[2,2,"X"],"62":[1,0,1],"19":[3,0,1],"20":[1,0,1],"43":[2,0,1],"44":[1,1,"X"],"69":[1,2,2],"70":[0,4,2],"23":[3,0,1],"24":[0,2,2],"47":[4,0,1],"48":[1,0,1],"71":[0,2,2],"72":[1,1,"X"],"22":[2,2,"X"],"21":[1,0,1],"45":[3,1,1],"46":[0,3,2],"67":[0,2,2],"68":[2,1,1],"73":[2,0,1],"74":[2,0,1],"75":[2,1,1],"76":[3,1,1],"77":[2,0,1],"78":[1,3,2],"79":[1,0,1],"80":[2,0,1],"81":[0,2,2],"82":[2,0,1],"83":[1,2,2],"84":[3,0,1],"85":[1,1,"X"],"86":[3,1,1],"87":[2,1,1],"88":[1,1,"X"],"89":[2,2,"X"],"90":[1,2,2],"91":[3,3,"X"],"92":[1,2,2],"93":[1,1,"X"],"94":[2,2,"X"],"95":[2,0,1],"96":[0,2,2],"97":[1,1,"X"],"98":[2,1,1],"99":[1,2,2],"100":[3,1,1],"101":[0,2,2],"102":[2,2,"X"],"103":[1,3,2],"104":[3,3,"X"]},"Pacman":{"1":[3,1,1],"2":[1,2,2],"25":[1,0,1],"28":[3,0,1],"53":[2,2,"X"],"54":[1,3,2],"3":[1,1,"X"],"8":[1,2,2],"26":[3,0,1],"27":[0,2,2],"51":[3,1,1],"52":[2,2,"X"],"7":[3,1,1],"5":[0,3,2],"30":[2,3,2],"29":[5,0,1],"49":[1,4,2],"50":[3,0,1],"4":[0,2,2],"6":[1,3,2],"32":[1,2,2],"31":[3,2,1],"59":[2,0,1],"60":[3,0,1],"10":[4,0,1],"9":[1,1,"X"],"33":[2,0,1],"34":[1,0,1],"55":[1,2,2],"56":[0,3,2],"11":[3,0,1],"12":[2,0,1],"35":[2,2,"X"],"36":[1,2,2],"57":[1,2,2],"58":[0,3,2],"16":[3,1,1],"15":[2,0,1],"39":[4,0,1],"40":[1,3,2],"63":[3,1,1],"64":[0,3,2],"14":[4,0,1],"13":[1,3,2],"38":[5,1,1],"37":[2,0,1],"65":[1,2,2],"66":[2,4,2],"17":[3,0,1],"18":[1,3,2],"42":[5,1,1],"41":[2,0,1],"61":[1,2,2],"62":[1,0,1],"19":[4,0,1],"20":[2,0,1],"43":[3,0,1],"44":[1,2,2],"69":[0,2,2],"70":[0,5,2],"23":[5,0,1],"24":[1,3,2],"47":[3,0,1],"48":[3,1,1],"71":[1,3,2],"72":[2,2,"X"],"22":[3,1,1],"21":[0,1,2],"45":[3,0,1],"46":[1,3,2],"67":[1,2,2],"68":[3,0,1],"73":[2,1,1],"74":[3,0,1],"75":[3,1,1],"76":[2,0,1],"77":[2,0,1],"78":[1,2,2],"79":[1,1,"X"],"80":[2,0,1],"81":[3,1,1],"82":[4,0,1],"83":[1,3,2],"84":[4,0,1],"85":[1,0,1],"86":[4,2,1],"87":[3,0,1],"88":[1,0,1],"89":[1,3,2],"90":[0,2,2],"91":[2,1,1],"92":[0,2,2],"93":[2,3,2],"94":[2,2,"X"],"95":[3,1,1],"96":[1,3,2],"97":[3,1,1],"98":[3,1,1],"99":[2,2,"X"],"100":[2,2,"X"],"101":[3,2,1],"102":[1,3,2],"103":[3,0,1],"104":[2,0,1]},"Ponk":{"1":[2,0,1],"2":[1,1,"X"],"25":[3,2,1],"28":[1,1,"X"],"53":[1,1,"X"],"54":[0,2,2],"3":[1,1,"X"],"8":[0,3,2],"26":[2,1,1],"27":[1,0,1],"51":[2,1,1],"52":[1,0,1],"7":[2,0,1],"5":[0,2,2],"30":[1,1,"X"],"29":[5,0,1],"49":[1,2,2],"50":[3,0,1],"4":[3,0,1],"6":[0,1,2],"32":[1,0,1],"31":[2,1,1],"59":[1,1,"X"],"60":[1,1,"X"],"10":[6,0,1],"9":[2,1,1],"33":[2,1,1],"34":[2,0,1],"55":[0,3,2],"56":[1,3,2],"11":[1,2,2],"12":[1,0,1],"35":[1,1,"X"],"36":[0,2,2],"57":[2,1,1],"58":[0,2,2],"16":[2,1,1],"15":[1,0,1],"39":[1,1,"X"],"40":[1,1,"X"],"63":[1,1,"X"],"64":[1,2,2],"14":[6,0,1],"13":[0,1,2],"38":[3,0,1],"37":[2,0,1],"65":[1,2,2],"66":[1,2,2],"17":[2,1,1],"18":[0,3,2],"42":[3,0,1],"41":[1,1,"X"],"61":[2,3,2],"62":[2,1,1],"19":[2,1,1],"20":[3,0,1],"43":[2,1,1],"44":[0,1,2],"69":[1,3,2],"70":[0,3,2],"23":[4,0,1],"24":[0,2,2],"47":[4,0,1],"48":[2,1,1],"71":[1,2,2],"72":[1,1,"X"],"22":[2,1,1],"21":[2,1,1],"45":[2,1,1],"46":[0,2,2],"67":[0,4,2],"68":[2,1,1],"73":[1,1,"X"],"74":[2,1,1],"75":[2,1,1],"76":[2,1,1],"77":[3,1,1],"78":[1,3,2],"79":[2,1,1],"80":[2,0,1],"81":[1,0,1],"82":[2,0,1],"83":[1,1,"X"],"84":[2,1,1],"85":[2,0,1],"86":[1,0,1],"87":[2,1,1],"88":[1,0,1],"89":[1,1,"X"],"90":[0,1,2],"91":[2,1,1],"92":[1,1,"X"],"93":[1,2,2],"94":[1,1,"X"],"95":[2,1,1],"96":[1,1,"X"],"97":[2,1,1],"98":[2,0,1],"99":[1,0,1],"100":[1,1,"X"],"101":[1,1,"X"],"102":[1,1,"X"],"103":[2,1,1],"104":[1,0,1]},"Richard":{"1":[1,0,1],"2":[1,1,"X"],"25":[2,1,1],"28":[2,1,1],"53":[1,2,2],"54":[1,2,2],"3":[2,0,1],"8":[0,3,2],"26":[2,0,1],"27":[2,0,1],"51":[1,0,1],"52":[2,1,1],"7":[3,0,1],"5":[0,2,2],"30":[1,2,2],"29":[4,0,1],"49":[1,2,2],"50":[3,0,1],"4":[2,1,1],"6":[0,2,2],"32":[2,1,1],"31":[1,0,1],"59":[0,1,2],"60":[1,1,"X"],"10":[4,0,1],"9":[0,1,2],"33":[3,0,1],"34":[3,1,1],"55":[1,2,2],"56":[1,2,2],"11":[2,1,1],"12":[2,1,1],"35":[3,1,1],"36":[0,1,2],"57":[2,1,1],"58":[0,2,2],"16":[3,0,1],"15":[2,1,1],"39":[2,0,1],"40":[1,2,2],"63":[1,1,"X"],"64":[0,2,2],"14":[3,0,1],"13":[1,3,2],"38":[2,0,1],"37":[2,0,1],"65":[1,0,1],"66":[1,2,2],"17":[3,1,1],"18":[1,2,2],"42":[3,0,1],"41":[1,0,1],"61":[0,2,2],"62":[2,0,1],"19":[2,1,1],"20":[2,1,1],"43":[1,0,1],"44":[1,2,2],"69":[0,1,2],"70":[1,3,2],"23":[3,1,1],"24":[0,1,2],"47":[3,0,1],"48":[2,0,1],"71":[1,2,2],"72":[1,0,1],"22":[2,1,1],"21":[1,0,1],"45":[2,0,1],"46":[0,2,2],"67":[1,3,2],"68":[2,0,1],"73":[0,1,2],"74":[2,0,1],"75":[2,1,1],"76":[2,1,1],"77":[2,0,1],"78":[0,1,2],"79":[3,0,1],"80":[2,0,1],"81":[1,0,1],"82":[2,1,1],"83":[2,1,1],"84":[1,0,1],"85":[1,0,1],"86":[2,1,1],"87":[2,0,1],"88":[1,0,1],"89":[1,2,2],"90":[0,1,2],"91":[2,1,1],"92":[1,2,2],"93":[0,2,2],"94":[0,1,2],"95":[3,0,1],"96":[1,2,2],"97":[1,0,1],"98":[2,1,1],"99":[2,1,1],"100":[1,0,1],"101":[2,1,1],"102":[1,0,1],"103":[2,1,1],"104":[2,0,1]},"Rostedt":{"1":[3,1,1],"2":[1,1,"X"],"25":[2,0,1],"28":[1,0,1],"53":[1,1,"X"],"54":[0,2,2],"3":[1,1,"X"],"8":[0,2,2],"26":[2,0,1],"27":[3,1,1],"51":[1,0,1],"52":[2,1,1],"7":[1,1,"X"],"5":[0,2,2],"30":[0,2,2],"29":[4,0,1],"49":[1,2,2],"50":[3,0,1],"4":[2,2,"X"],"6":[0,3,2],"32":[2,0,1],"31":[1,1,"X"],"59":[1,1,"X"],"60":[1,1,"X"],"10":[4,0,1],"9":[1,1,"X"],"33":[2,0,1],"34":[2,0,1],"55":[0,3,2],"56":[0,2,2],"11":[2,1,1],"12":[2,1,1],"35":[2,0,1],"36":[0,1,2],"57":[1,0,1],"58":[0,2,2],"16":[0,1,2],"15":[2,0,1],"39":[1,0,1],"40":[0,2,2],"63":[1,1,"X"],"64":[0,3,2],"14":[5,0,1],"13":[1,1,"X"],"38":[2,0,1],"37":[1,0,1],"65":[0,1,2],"66":[1,2,2],"17":[2,0,1],"18":[0,3,2],"42":[2,0,1],"41":[1,1,"X"],"61":[0,2,2],"62":[1,0,1],"19":[2,0,1],"20":[3,0,1],"43":[1,0,1],"44":[1,2,2],"69":[1,2,2],"70":[1,2,2],"23":[3,0,1],"24":[0,1,2],"47":[3,0,1],"48":[2,0,1],"71":[0,2,2],"72":[0,1,2],"22":[1,0,1],"21":[1,0,1],"45":[3,0,1],"46":[0,2,2],"67":[0,2,2],"68":[1,0,1],"73":[1,0,1],"74":[2,0,1],"75":[0,1,2],"76":[2,0,1],"77":[2,0,1],"78":[0,1,2],"79":[1,0,1],"80":[2,0,1],"81":[1,0,1],"82":[1,0,1],"83":[1,1,"X"],"84":[2,0,1],"85":[1,0,1],"86":[2,0,1],"87":[2,1,1],"88":[0,2,2],"89":[0,1,2],"90":[0,1,2],"91":[2,1,1],"92":[0,2,2],"93":[0,2,2],"94":[0,1,2],"95":[1,0,1],"96":[1,2,2],"97":[3,0,1],"98":[2,0,1],"99":[1,1,"X"],"100":[1,2,2],"101":[1,2,2],"102":[1,1,"X"],"103":[0,1,2],"104":[1,0,1]},"Mats":{"1":[2,0,1],"2":[2,0,1],"25":[1,0,1],"28":[1,1,"X"],"53":[1,2,2],"54":[0,2,2],"3":[1,0,1],"8":[0,3,2],"26":[2,0,1],"27":[2,0,1],"51":[2,1,1],"52":[2,0,1],"7":[2,1,1],"5":[0,4,2],"30":[1,2,2],"29":[4,0,1],"49":[1,3,2],"50":[2,1,1],"4":[1,1,"X"],"6":[0,3,2],"32":[3,1,1],"31":[1,1,"X"],"59":[1,1,"X"],"60":[0,0,"X"],"10":[5,0,1],"9":[0,2,2],"33":[1,0,1],"34":[2,0,1],"55":[1,2,2],"56":[1,1,"X"],"11":[1,2,2],"12":[1,1,"X"],"35":[2,1,1],"36":[1,2,2],"57":[2,1,1],"58":[1,2,2],"16":[2,1,1],"15":[3,0,1],"39":[2,1,1],"40":[0,2,2],"63":[1,1,"X"],"64":[0,2,2],"14":[5,0,1],"13":[0,2,2],"38":[3,0,1],"37":[1,0,1],"65":[2,1,1],"66":[1,1,"X"],"17":[4,1,1],"18":[1,3,2],"42":[3,0,1],"41":[3,2,1],"61":[1,2,2],"62":[2,1,1],"19":[3,0,1],"20":[3,0,1],"43":[3,1,1],"44":[0,2,2],"69":[1,2,2],"70":[1,3,2],"23":[4,1,1],"24":[0,2,2],"47":[4,1,1],"48":[2,0,1],"71":[1,1,"X"],"72":[2,1,1],"22":[1,1,"X"],"21":[2,0,1],"45":[2,0,1],"46":[0,2,2],"67":[0,3,2],"68":[1,1,"X"],"73":[2,1,1],"74":[2,0,1],"75":[2,2,"X"],"76":[3,1,1],"77":[1,1,"X"],"78":[2,1,1],"79":[2,0,1],"80":[1,0,1],"81":[2,0,1],"82":[3,0,1],"83":[2,2,"X"],"84":[2,0,1],"85":[1,0,1],"86":[2,1,1],"87":[2,1,1],"88":[3,1,1],"89":[1,2,2],"90":[0,1,2],"91":[2,0,1],"92":[1,2,2],"93":[0,2,2],"94":[1,0,1],"95":[2,1,1],"96":[1,1,"X"],"97":[1,0,1],"98":[2,1,1],"99":[2,2,"X"],"100":[1,0,1],"101":[1,3,2],"102":[1,2,2],"103":[1,0,1],"104":[2,0,1]},"Måns":{"1":[3,1,1],"2":[2,0,1],"25":[1,1,"X"],"28":[1,2,2],"53":[2,2,"X"],"54":[0,2,2],"3":[2,2,"X"],"8":[0,3,2],"26":[3,1,1],"27":[2,0,1],"51":[2,0,1],"52":[3,1,1],"7":[2,2,"X"],"5":[0,3,2],"30":[0,2,2],"29":[5,0,1],"49":[1,1,"X"],"50":[4,1,1],"4":[1,2,2],"6":[0,2,2],"32":[1,1,"X"],"31":[3,1,1],"59":[2,1,1],"60":[1,1,"X"],"10":[5,0,1],"9":[0,2,2],"33":[2,2,"X"],"34":[3,0,1],"55":[1,4,2],"56":[0,0,"X"],"11":[1,2,2],"12":[1,0,1],"35":[2,2,"X"],"36":[0,3,2],"57":[2,1,1],"58":[0,3,2],"16":[2,0,1],"15":[2,1,1],"39":[2,1,1],"40":[1,2,2],"63":[1,1,"X"],"64":[0,2,2],"14":[6,0,1],"13":[1,3,2],"38":[3,0,1],"37":[1,0,1],"65":[1,2,2],"66":[0,2,2],"17":[1,1,"X"],"18":[1,3,2],"42":[2,0,1],"41":[2,1,1],"61":[0,2,2],"62":[2,0,1],"19":[3,1,1],"20":[3,0,1],"43":[3,1,1],"44":[1,2,2],"69":[1,3,2],"70":[1,4,2],"23":[5,0,1],"24":[1,1,"X"],"47":[4,0,1],"48":[2,2,"X"],"71":[0,2,2],"72":[1,2,2],"22":[1,1,"X"],"21":[4,1,1],"45":[2,2,"X"],"46":[1,1,"X"],"67":[0,3,2],"68":[2,1,1],"73":[2,2,"X"],"74":[2,0,1],"75":[2,2,"X"],"76":[2,1,1],"77":[3,1,1],"78":[1,1,"X"],"79":[1,2,2],"80":[1,1,"X"],"81":[2,0,1],"82":[3,0,1],"83":[0,0,"X"],"84":[2,0,1],"85":[2,1,1],"86":[1,1,"X"],"87":[2,0,1],"88":[2,1,1],"89":[1,1,"X"],"90":[1,3,2],"91":[2,2,"X"],"92":[1,1,"X"],"93":[1,2,2],"94":[2,2,"X"],"95":[3,0,1],"96":[1,1,"X"],"97":[2,2,"X"],"98":[3,1,1],"99":[2,2,"X"],"100":[2,1,1],"101":[1,2,2],"102":[2,2,"X"],"103":[2,1,1],"104":[1,1,"X"]},"Odhe":{"1":[2,0,1],"2":[1,1,"X"],"25":[2,1,1],"28":[1,1,"X"],"53":[1,2,2],"54":[2,0,1],"3":[1,1,"X"],"8":[0,2,2],"26":[2,0,1],"27":[2,1,1],"51":[1,1,"X"],"52":[1,2,2],"7":[2,1,1],"5":[0,2,2],"30":[1,1,"X"],"29":[4,0,1],"49":[0,2,2],"50":[3,0,1],"4":[2,1,1],"6":[1,1,"X"],"32":[2,0,1],"31":[2,1,1],"59":[1,1,"X"],"60":[0,1,2],"10":[3,0,1],"9":[1,1,"X"],"33":[2,0,1],"34":[2,0,1],"55":[0,3,2],"56":[1,2,2],"11":[2,1,1],"12":[2,0,1],"35":[1,1,"X"],"36":[1,2,2],"57":[1,1,"X"],"58":[0,2,2],"16":[2,1,1],"15":[1,1,"X"],"39":[2,0,1],"40":[0,1,2],"63":[1,1,"X"],"64":[0,3,2],"14":[3,0,1],"13":[0,2,2],"38":[2,0,1],"37":[2,0,1],"65":[1,2,2],"66":[1,1,"X"],"17":[2,1,1],"18":[0,2,2],"42":[3,0,1],"41":[1,1,"X"],"61":[0,2,2],"62":[2,0,1],"19":[2,0,1],"20":[2,0,1],"43":[2,1,1],"44":[1,2,2],"69":[1,1,"X"],"70":[0,3,2],"23":[2,0,1],"24":[0,2,2],"47":[3,0,1],"48":[2,1,1],"71":[1,1,"X"],"72":[1,1,"X"],"22":[1,1,"X"],"21":[2,1,1],"45":[2,0,1],"46":[0,2,2],"67":[0,3,2],"68":[2,1,1],"73":[1,2,2],"74":[2,0,1],"75":[2,0,1],"76":[3,1,1],"77":[3,1,1],"78":[1,2,2],"79":[2,1,1],"80":[2,0,1],"81":[1,1,"X"],"82":[3,0,1],"83":[2,1,1],"84":[3,0,1],"85":[2,0,1],"86":[2,2,"X"],"87":[2,1,1],"88":[1,0,1],"89":[1,2,2],"90":[0,2,2],"91":[3,0,1],"92":[0,2,2],"93":[1,2,2],"94":[1,3,2],"95":[3,1,1],"96":[1,2,2],"97":[2,1,1],"98":[2,1,1],"99":[2,1,1],"100":[2,2,"X"],"101":[1,1,"X"],"102":[2,1,1],"103":[1,2,2],"104":[1,2,2]},"Scout":{"1":[2,0,1],"2":[0,0,"X"],"25":[1,0,1],"28":[1,0,1],"53":[0,3,2],"54":[1,1,"X"],"3":[1,0,1],"8":[1,2,2],"26":[3,0,1],"27":[1,0,1],"51":[1,0,1],"52":[0,0,"X"],"7":[2,0,1],"5":[0,1,2],"30":[2,1,1],"29":[3,1,1],"49":[1,2,2],"50":[1,1,"X"],"4":[1,1,"X"],"6":[0,0,"X"],"32":[1,0,1],"31":[1,2,2],"59":[0,1,2],"60":[1,0,1],"10":[2,0,1],"9":[1,0,1],"33":[3,0,1],"34":[1,0,1],"55":[0,1,2],"56":[0,2,2],"11":[2,0,1],"12":[1,0,1],"35":[2,0,1],"36":[1,1,"X"],"57":[1,1,"X"],"58":[0,3,2],"16":[2,0,1],"15":[1,1,"X"],"39":[1,0,1],"40":[0,1,2],"63":[1,0,1],"64":[0,3,2],"14":[3,0,1],"13":[0,1,2],"38":[2,1,1],"37":[1,1,"X"],"65":[1,1,"X"],"66":[0,2,2],"17":[1,0,1],"18":[0,2,2],"42":[2,0,1],"41":[2,0,1],"61":[1,1,"X"],"62":[1,1,"X"],"19":[3,0,1],"20":[1,0,1],"43":[1,0,1],"44":[1,1,"X"],"69":[0,2,2],"70":[0,2,2],"23":[2,1,1],"24":[0,1,2],"47":[3,0,1],"48":[1,0,1],"71":[0,1,2],"72":[1,1,"X"],"22":[0,0,"X"],"21":[1,0,1],"45":[1,0,1],"46":[1,2,2],"67":[0,2,2],"68":[1,0,1],"73":[0,1,2],"74":[2,0,1],"75":[2,1,1],"76":[2,0,1],"77":[1,0,1],"78":[0,2,2],"79":[1,0,1],"80":[3,1,1],"81":[1,0,1],"82":[2,0,1],"83":[0,1,2],"84":[1,0,1],"85":[2,0,1],"86":[2,0,1],"87":[1,0,1],"88":[1,0,1],"89":[0,1,2],"90":[0,1,2],"91":[1,2,2],"92":[0,1,2],"93":[0,2,2],"94":[0,1,2],"95":[1,0,1],"96":[0,1,2],"97":[1,0,1],"98":[2,0,1],"99":[1,0,1],"100":[1,0,1],"101":[0,2,2],"102":[1,0,1],"103":[0,1,2],"104":[1,0,1]},"Simon":{"1":[3,0,1],"2":[2,2,"X"],"25":[0,0,"X"],"28":[2,0,1],"53":[1,1,"X"],"54":[0,2,2],"3":[2,1,1],"8":[1,4,2],"26":[1,1,"X"],"27":[3,0,1],"51":[0,0,"X"],"52":[1,2,2],"7":[4,1,1],"5":[1,3,2],"30":[0,1,2],"29":[4,0,1],"49":[1,3,2],"50":[2,0,1],"4":[1,0,1],"6":[1,2,2],"32":[0,0,"X"],"31":[2,0,1],"59":[2,2,"X"],"60":[2,1,1],"10":[3,0,1],"9":[1,2,2],"33":[1,0,1],"34":[3,1,1],"55":[0,0,"X"],"56":[1,1,"X"],"11":[2,1,1],"12":[2,0,1],"35":[2,0,1],"36":[0,2,2],"57":[2,1,1],"58":[1,1,"X"],"16":[1,1,"X"],"15":[1,0,1],"39":[3,1,1],"40":[1,2,2],"63":[2,2,"X"],"64":[0,2,2],"14":[3,0,1],"13":[0,3,2],"38":[3,1,1],"37":[2,0,1],"65":[0,1,2],"66":[1,3,2],"17":[4,1,1],"18":[1,3,2],"42":[3,0,1],"41":[2,2,"X"],"61":[0,2,2],"62":[1,1,"X"],"19":[1,0,1],"20":[1,1,"X"],"43":[2,2,"X"],"44":[0,1,2],"69":[0,2,2],"70":[1,4,2],"23":[2,0,1],"24":[0,1,2],"47":[3,1,1],"48":[3,1,1],"71":[2,2,"X"],"72":[0,0,"X"],"22":[2,2,"X"],"21":[1,1,"X"],"45":[2,0,1],"46":[1,2,2],"67":[0,2,2],"68":[2,0,1],"73":[1,1,"X"],"74":[2,0,1],"75":[3,1,1],"76":[2,1,1],"77":[3,0,1],"78":[1,1,"X"],"79":[3,0,1],"80":[4,1,1],"81":[0,0,"X"],"82":[2,0,1],"83":[2,2,"X"],"84":[1,0,1],"85":[1,0,1],"86":[3,3,"X"],"87":[2,1,1],"88":[0,0,"X"],"89":[2,2,"X"],"90":[2,1,1],"91":[0,1,2],"92":[0,0,"X"],"93":[1,2,2],"94":[1,0,1],"95":[3,1,1],"96":[2,2,"X"],"97":[2,0,1],"98":[1,1,"X"],"99":[1,2,2],"100":[3,0,1],"101":[3,3,"X"],"102":[1,0,1],"103":[1,2,2],"104":[1,1,"X"]},"Sjöstedt":{"1":[2,0,1],"2":[1,1,"X"],"25":[1,0,1],"28":[1,2,2],"53":[0,1,2],"54":[1,3,2],"3":[2,1,1],"8":[0,3,2],"26":[2,1,1],"27":[1,0,1],"51":[1,0,1],"52":[2,0,1],"7":[2,2,"X"],"5":[0,2,2],"30":[1,1,"X"],"29":[4,0,1],"49":[1,2,2],"50":[2,0,1],"4":[1,1,"X"],"6":[0,2,2],"32":[2,0,1],"31":[2,2,"X"],"59":[2,1,1],"60":[1,1,"X"],"10":[4,0,1],"9":[1,1,"X"],"33":[2,1,1],"34":[3,0,1],"55":[1,2,2],"56":[0,1,2],"11":[2,1,1],"12":[2,1,1],"35":[2,0,1],"36":[1,2,2],"57":[1,1,"X"],"58":[0,3,2],"16":[1,0,1],"15":[2,1,1],"39":[2,1,1],"40":[0,2,2],"63":[1,1,"X"],"64":[0,3,2],"14":[5,0,1],"13":[0,2,2],"38":[3,1,1],"37":[2,0,1],"65":[0,1,2],"66":[1,2,2],"17":[2,0,1],"18":[1,3,2],"42":[3,0,1],"41":[2,0,1],"61":[1,2,2],"62":[1,0,1],"19":[3,1,1],"20":[2,0,1],"43":[2,2,"X"],"44":[0,1,2],"69":[1,1,"X"],"70":[0,4,2],"23":[3,0,1],"24":[0,2,2],"47":[4,0,1],"48":[2,1,1],"71":[0,1,2],"72":[2,0,1],"22":[1,1,"X"],"21":[2,1,1],"45":[2,1,1],"46":[0,2,2],"67":[0,3,2],"68":[1,0,1],"73":[2,1,1],"74":[3,0,1],"75":[1,1,"X"],"76":[2,0,1],"77":[3,1,1],"78":[0,0,"X"],"79":[2,1,1],"80":[2,0,1],"81":[1,1,"X"],"82":[1,0,1],"83":[0,0,"X"],"84":[2,0,1],"85":[1,0,1],"86":[2,1,1],"87":[1,0,1],"88":[1,1,"X"],"89":[1,1,"X"],"90":[0,1,2],"91":[2,1,1],"92":[0,0,"X"],"93":[0,2,2],"94":[1,1,"X"],"95":[2,0,1],"96":[0,1,2],"97":[2,0,1],"98":[2,1,1],"99":[1,1,"X"],"100":[2,0,1],"101":[1,0,1],"102":[2,2,"X"],"103":[0,2,2],"104":[1,1,"X"]},"Tomas S":{"1":[1,0,1],"2":[2,0,1],"25":[2,1,1],"28":[1,1,"X"],"53":[0,1,2],"54":[0,2,2],"3":[1,0,1],"8":[0,3,2],"26":[2,1,1],"27":[4,0,1],"51":[1,1,"X"],"52":[2,1,1],"7":[1,1,"X"],"5":[1,2,2],"30":[0,2,2],"29":[3,0,1],"49":[0,1,2],"50":[3,0,1],"4":[1,1,"X"],"6":[0,1,2],"32":[2,0,1],"31":[0,1,2],"59":[1,2,2],"60":[1,0,1],"10":[4,0,1],"9":[2,1,1],"33":[2,0,1],"34":[3,0,1],"55":[1,3,2],"56":[0,2,2],"11":[1,1,"X"],"12":[1,1,"X"],"35":[2,2,"X"],"36":[0,3,2],"57":[1,0,1],"58":[0,1,2],"16":[1,2,2],"15":[1,1,"X"],"39":[2,0,1],"40":[1,3,2],"63":[2,0,1],"64":[0,3,2],"14":[3,0,1],"13":[1,2,2],"38":[3,0,1],"37":[3,0,1],"65":[1,2,2],"66":[2,2,"X"],"17":[1,1,"X"],"18":[0,2,2],"42":[4,0,1],"41":[1,1,"X"],"61":[1,3,2],"62":[2,0,1],"19":[1,1,"X"],"20":[2,0,1],"43":[2,1,1],"44":[0,3,2],"69":[1,1,"X"],"70":[0,4,2],"23":[1,1,"X"],"24":[1,2,2],"47":[2,0,1],"48":[3,0,1],"71":[1,1,"X"],"72":[2,2,"X"],"22":[1,1,"X"],"21":[2,1,1],"45":[2,0,1],"46":[1,3,2],"67":[1,2,2],"68":[2,2,"X"],"73":[2,2,"X"],"74":[2,0,1],"75":[2,3,2],"76":[1,2,2],"77":[3,1,1],"78":[0,2,2],"79":[2,0,1],"80":[1,1,"X"],"81":[2,0,1],"82":[2,1,1],"83":[0,3,2],"84":[2,0,1],"85":[1,0,1],"86":[2,2,"X"],"87":[1,2,2],"88":[2,1,1],"89":[1,3,2],"90":[2,1,1],"91":[1,1,"X"],"92":[1,2,2],"93":[0,3,2],"94":[2,0,1],"95":[2,0,1],"96":[1,1,"X"],"97":[2,0,1],"98":[2,1,1],"99":[0,2,2],"100":[3,1,1],"101":[2,2,"X"],"102":[3,1,1],"103":[2,0,1],"104":[3,1,1]},"Widfeldt":{"1":[2,1,1],"2":[2,2,"X"],"25":[1,1,"X"],"28":[2,0,1],"53":[1,3,2],"54":[1,1,"X"],"3":[1,2,2],"8":[0,5,2],"26":[2,1,1],"27":[4,0,1],"51":[2,1,1],"52":[3,0,1],"7":[3,0,1],"5":[0,3,2],"30":[1,1,"X"],"29":[8,0,1],"49":[0,3,2],"50":[4,0,1],"4":[1,1,"X"],"6":[1,2,2],"32":[2,0,1],"31":[1,2,2],"59":[2,1,1],"60":[3,0,1],"10":[6,0,1],"9":[1,2,2],"33":[3,1,1],"34":[4,0,1],"55":[0,4,2],"56":[1,3,2],"11":[2,0,1],"12":[2,1,1],"35":[3,1,1],"36":[0,1,2],"57":[2,0,1],"58":[0,2,2],"16":[2,0,1],"15":[1,1,"X"],"39":[3,0,1],"40":[1,2,2],"63":[2,1,1],"64":[0,2,2],"14":[7,0,1],"13":[0,4,2],"38":[5,0,1],"37":[6,0,1],"65":[0,2,2],"66":[1,2,2],"17":[2,1,1],"18":[0,3,2],"42":[3,0,1],"41":[2,1,1],"61":[1,2,2],"62":[2,1,1],"19":[3,0,1],"20":[3,0,1],"43":[2,1,1],"44":[1,2,2],"69":[1,2,2],"70":[0,4,2],"23":[4,0,1],"24":[0,4,2],"47":[5,0,1],"48":[3,0,1],"71":[1,3,2],"72":[1,0,1],"22":[2,1,1],"21":[2,0,1],"45":[2,0,1],"46":[0,3,2],"67":[0,4,2],"68":[1,1,"X"],"73":[1,1,"X"],"74":[3,0,1],"75":[2,0,1],"76":[2,0,1],"77":[3,0,1],"78":[1,2,2],"79":[2,0,1],"80":[2,0,1],"81":[2,1,1],"82":[2,0,1],"83":[1,1,"X"],"84":[3,1,1],"85":[2,1,1],"86":[2,1,1],"87":[2,0,1],"88":[1,1,"X"],"89":[1,2,2],"90":[0,2,2],"91":[2,1,1],"92":[1,2,2],"93":[0,2,2],"94":[0,1,2],"95":[2,1,1],"96":[1,3,2],"97":[1,0,1],"98":[2,0,1],"99":[2,2,"X"],"100":[1,2,2],"101":[1,1,"X"],"102":[1,0,1],"103":[1,1,"X"],"104":[0,0,"X"]},"Åke":{"1":[2,0,1],"2":[1,1,"X"],"25":[1,0,1],"28":[3,1,1],"53":[2,2,"X"],"54":[1,2,2],"3":[1,1,"X"],"8":[1,3,2],"26":[2,1,1],"27":[1,2,2],"51":[2,0,1],"52":[3,2,1],"7":[1,0,1],"5":[1,2,2],"30":[0,0,"X"],"29":[3,0,1],"49":[1,4,2],"50":[2,0,1],"4":[2,0,1],"6":[1,3,2],"32":[1,1,"X"],"31":[2,0,1],"59":[1,2,2],"60":[1,1,"X"],"10":[2,0,1],"9":[1,2,2],"33":[3,1,1],"34":[2,2,"X"],"55":[1,1,"X"],"56":[1,4,2],"11":[3,1,1],"12":[0,2,2],"35":[2,2,"X"],"36":[2,2,"X"],"57":[1,2,2],"58":[2,3,2],"16":[2,2,"X"],"15":[1,1,"X"],"39":[3,0,1],"40":[2,2,"X"],"63":[2,2,"X"],"64":[1,2,2],"14":[4,0,1],"13":[2,2,"X"],"38":[3,1,1],"37":[1,1,"X"],"65":[1,2,2],"66":[1,1,"X"],"17":[3,1,1],"18":[1,3,2],"42":[2,0,1],"41":[3,2,1],"61":[1,1,"X"],"62":[1,1,"X"],"19":[3,1,1],"20":[2,1,1],"43":[3,1,1],"44":[1,2,2],"69":[1,3,2],"70":[0,3,2],"23":[2,0,1],"24":[0,2,2],"47":[3,1,1],"48":[3,2,1],"71":[1,2,2],"72":[1,1,"X"],"22":[3,1,1],"21":[1,1,"X"],"45":[4,2,1],"46":[3,3,"X"],"67":[1,2,2],"68":[3,0,1],"73":[1,0,1],"74":[3,0,1],"75":[2,1,1],"76":[2,0,1],"77":[3,1,1],"78":[1,4,2],"79":[2,1,1],"80":[3,0,1],"81":[2,1,1],"82":[2,1,1],"83":[2,1,1],"84":[3,1,1],"85":[2,0,1],"86":[3,1,1],"87":[3,1,1],"88":[2,1,1],"89":[2,3,2],"90":[1,3,2],"91":[1,0,1],"92":[2,4,2],"93":[1,3,2],"94":[2,0,1],"95":[3,0,1],"96":[1,2,2],"97":[2,1,1],"98":[3,0,1],"99":[2,1,1],"100":[2,0,1],"101":[2,3,2],"102":[2,1,1],"103":[2,1,1],"104":[3,2,1]}},"players":["Adam","Alexander S","Anton","Elias","Grabben","Holm","Kuffen","Levin","Pacman","Ponk","Richard","Rostedt","Mats","Måns","Odhe","Scout","Simon","Sjöstedt","Tomas S","Widfeldt","Åke"]};
 let selectedMatchdayPlayer = localStorage.getItem('vmtips_myname') || '';
 let matchdayDate = null; // null = auto (today/next)
 let matchdayMode = 'all'; // always 'all' now
 
 const GROUP_LAST_MATCH = 72; // matches 1-72 = group stage (knockout teams not yet decided)
+const BONUSDATA = {"categories":["Skyttekung","Assistkung","Världsmästare","Vinnare bronsmatch","Lag som gör flest mål i gruppspelet","Lag som släpper in flest mål i gruppspelet","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)","Hur många mål gör Sverige totalt i gruppspelet?"],"labels":["Skyttekung","Assistkung","Världsmästare","Brons-vinnare","Flest mål (grupp)","Flest insläppta (grupp)","Flest kort (grupp)","Sveriges mål (grupp)"],"bonus":{"Adam":{"Skyttekung":"Harry Kane","Assistkung":"Bruno Fernandes","Världsmästare":"Frankrike","Vinnare bronsmatch":"Spanien","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Kap Verde","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Kongo","Hur många mål gör Sverige totalt i gruppspelet?":"4"},"Alexander S":{"Skyttekung":"Harry Kane","Assistkung":"Lamine Yamal","Världsmästare":"England","Vinnare bronsmatch":"Frankrike","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Curaçao","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Bosnien & Herzigovina","Hur många mål gör Sverige totalt i gruppspelet?":"6"},"Anton":{"Skyttekung":"Erling Braut Haaland","Assistkung":"Denzel Dumfries","Världsmästare":"Spanien","Vinnare bronsmatch":"Frankrike","Lag som gör flest mål i gruppspelet":"Tyskland","Lag som släpper in flest mål i gruppspelet":"Irak","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Nya Zeeland","Hur många mål gör Sverige totalt i gruppspelet?":"2"},"Elias":{"Skyttekung":"Kylian Mbappé","Assistkung":"Lamine Yamal","Världsmästare":"Frankrike","Vinnare bronsmatch":"Spanien","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Haiti","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Sverige","Hur många mål gör Sverige totalt i gruppspelet?":"2"},"Grabben":{"Skyttekung":"Kylian Mbappé","Assistkung":"Michael Olise","Världsmästare":"Frankrike","Vinnare bronsmatch":"Kroatien","Lag som gör flest mål i gruppspelet":"Frankrike","Lag som släpper in flest mål i gruppspelet":"Kap Verde","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Argentina","Hur många mål gör Sverige totalt i gruppspelet?":"3"},"Holm":{"Skyttekung":"Erling Braut Haaland","Assistkung":"Martin Odegaard","Världsmästare":"Frankrike","Vinnare bronsmatch":"Spanien","Lag som gör flest mål i gruppspelet":"Schweiz","Lag som släpper in flest mål i gruppspelet":"Jordanien","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Argentina","Hur många mål gör Sverige totalt i gruppspelet?":"4"},"Kuffen":{"Skyttekung":"Harry Kane","Assistkung":"Lamine Yamal","Världsmästare":"Spanien","Vinnare bronsmatch":"Argentina","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Curaçao","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Turkiet","Hur många mål gör Sverige totalt i gruppspelet?":"4"},"Levin":{"Skyttekung":"Lionel Messi","Assistkung":"Lamine Yamal","Världsmästare":"Argentina","Vinnare bronsmatch":"England","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Kap Verde","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"England","Hur många mål gör Sverige totalt i gruppspelet?":"4"},"Pacman":{"Skyttekung":"Lamine Yamal","Assistkung":"Dani Olmo","Världsmästare":"Frankrike","Vinnare bronsmatch":"Spanien","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Haiti","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Nederländerna","Hur många mål gör Sverige totalt i gruppspelet?":"5"},"Ponk":{"Skyttekung":"Kylian Mbappé","Assistkung":"Bruno Fernandes","Världsmästare":"Frankrike","Vinnare bronsmatch":"Spanien","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Haiti","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Tunisien","Hur många mål gör Sverige totalt i gruppspelet?":"4"},"Richard":{"Skyttekung":"Kylian Mbappé","Assistkung":"Pedri","Världsmästare":"Frankrike","Vinnare bronsmatch":"Spanien","Lag som gör flest mål i gruppspelet":"Tyskland","Lag som släpper in flest mål i gruppspelet":"Haiti","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Argentina","Hur många mål gör Sverige totalt i gruppspelet?":"5"},"Rostedt":{"Skyttekung":"Harry Kane","Assistkung":"Bruno Fernandes","Världsmästare":"Spanien","Vinnare bronsmatch":"Portugal","Lag som gör flest mål i gruppspelet":"Tyskland","Lag som släpper in flest mål i gruppspelet":"Sverige","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Irak","Hur många mål gör Sverige totalt i gruppspelet?":"2"},"Mats":{"Skyttekung":"Mikel Oyarzabal","Assistkung":"Rodri","Världsmästare":"Spanien","Vinnare bronsmatch":"Frankrike","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Haiti","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Uzbekistan","Hur många mål gör Sverige totalt i gruppspelet?":"3"},"Måns":{"Skyttekung":"Erling Braut Haaland","Assistkung":"Michael Olise","Världsmästare":"Spanien","Vinnare bronsmatch":"Japan","Lag som gör flest mål i gruppspelet":"Portugal","Lag som släpper in flest mål i gruppspelet":"Haiti","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Skottland","Hur många mål gör Sverige totalt i gruppspelet?":"4"},"Odhe":{"Skyttekung":"Kylian Mbappé","Assistkung":"Lamine Yamal","Världsmästare":"Brasilien","Vinnare bronsmatch":"Argentina","Lag som gör flest mål i gruppspelet":"England","Lag som släpper in flest mål i gruppspelet":"Panama","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Uruguay","Hur många mål gör Sverige totalt i gruppspelet?":"4"},"Scout":{"Skyttekung":"Lamine Yamal","Assistkung":"Ousmane Dembélé","Världsmästare":"Spanien","Vinnare bronsmatch":"Argentina","Lag som gör flest mål i gruppspelet":"Brasilien","Lag som släpper in flest mål i gruppspelet":"Algeriet","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Nederländerna","Hur många mål gör Sverige totalt i gruppspelet?":"2"},"Simon":{"Skyttekung":"Harry Kane","Assistkung":"Jude Bellingham","Världsmästare":"Spanien","Vinnare bronsmatch":"Argentina","Lag som gör flest mål i gruppspelet":"Brasilien","Lag som släpper in flest mål i gruppspelet":"Haiti","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Ghana","Hur många mål gör Sverige totalt i gruppspelet?":"3"},"Sjöstedt":{"Skyttekung":"Kylian Mbappé","Assistkung":"Rodri","Världsmästare":"Frankrike","Vinnare bronsmatch":"Argentina","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Curaçao","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Haiti","Hur många mål gör Sverige totalt i gruppspelet?":"3"},"Tomas S":{"Skyttekung":"Ousmane Dembélé","Assistkung":"Pedri","Världsmästare":"Spanien","Vinnare bronsmatch":"Argentina","Lag som gör flest mål i gruppspelet":"Tyskland","Lag som släpper in flest mål i gruppspelet":"Curaçao","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Senegal","Hur många mål gör Sverige totalt i gruppspelet?":"3"},"Widfeldt":{"Skyttekung":"Harry Kane","Assistkung":"Bruno Fernandes","Världsmästare":"Frankrike","Vinnare bronsmatch":"Portugal","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Kap Verde","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Bosnien","Hur många mål gör Sverige totalt i gruppspelet?":"3"},"Åke":{"Skyttekung":"Dani Olmo","Assistkung":"Rodri","Världsmästare":"Spanien","Vinnare bronsmatch":"Frankrike","Lag som gör flest mål i gruppspelet":"Tyskland","Lag som släpper in flest mål i gruppspelet":"Ghana","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Tyskland","Hur många mål gör Sverige totalt i gruppspelet?":"4"}}};
+const KODATA = {"ko":{"Adam":{"r32":["Sydkorea","Kanada","Tyskland","Turkiet","Nederländerna","Skottland","Brasilien","Sverige","Frankrike","Japan","Elfenbenskusten","Norge","Mexiko","Marocko","England","Kongo","Australien","Bosnien-Herzigovina","Belgien","Ecuador","Colombia","Kroatien","Spanien","Österrike","Schweiz","Nya Zeeland","Argentina","Uruguay","Portugal","Senegal","USA","Egypten"],"r16":["Tyskland","Frankrike","Sydkorea","Nederländerna","Brasilien","Norge","Mexiko","England","Kroatien","Spanien","Australien","Belgien","Argentina","USA","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","England","Argentina"],"final":["Frankrike","England"]},"Alexander S":{"r32":["Mexiko","Kanada","Tyskland","Skottland","Sverige","Marocko","Brasilien","Nederländerna","Frankrike","Japan","Ecuador","Norge","Sydkorea","Elfenbenskusten","England","Senegal","USA","Bosnien-Herzigovina","Belgien","Czechia","Colombia","Kroatien","Spanien","Österrike","Schweiz","Algeriet","Argentina","Uruguay","Portugal","Ghana","Turkiet","Iran"],"r16":["Tyskland","Frankrike","Kanada","Sverige","Nederländerna","Norge","Elfenbenskusten","England","Kroatien","Spanien","USA","Belgien","Argentina","Turkiet","Schweiz","Portugal"],"qf":["Frankrike","Sverige","Spanien","Belgien","Nederländerna","England","Argentina","Schweiz"],"sf":["Frankrike","Spanien","England","Argentina"],"final":["Spanien","England"]},"Anton":{"r32":["Mexiko","Bosnien-Herzigovina","Tyskland","Skottland","Nederländerna","Brasilien","Marocko","Japan","Frankrike","Paraguay","Ecuador","Norge","Czechia","Saudiarabien","Kroatien","Kongo","USA","Elfenbenskusten","Belgien","Sydkorea","Colombia","England","Spanien","Argentina","Schweiz","Algeriet","Österrike","Uruguay","Portugal","Senegal","Turkiet","Egypten"],"r16":["Tyskland","Frankrike","Mexiko","Nederländerna","Marocko","Norge","Czechia","Kroatien","England","Spanien","USA","Belgien","Österrike","Turkiet","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Marocko","Kroatien","Österrike","Schweiz"],"sf":["Frankrike","Spanien","Marocko","Österrike"],"final":["Spanien","Marocko"]},"Elias":{"r32":["Mexiko","Kanada","Tyskland","Skottland","Nederländerna","Marocko","Brasilien","Japan","Frankrike","USA","Ecuador","Norge","Sydkorea","Elfenbenskusten","England","Senegal","Turkiet","Österrike","Belgien","Czechia","Colombia","Kroatien","Spanien","Algeriet","Schweiz","Egypten","Argentina","Uruguay","Portugal","Ghana","Paraguay","Iran"],"r16":["Tyskland","Frankrike","Mexiko","Nederländerna","Brasilien","Norge","Sydkorea","England","Colombia","Spanien","Turkiet","Belgien","Argentina","Paraguay","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","England","Argentina"],"final":["Frankrike","England"]},"Grabben":{"r32":["Czechia","Kanada","Tyskland","Skottland","Nederländerna","Marocko","Brasilien","Japan","Frankrike","Sverige","Ecuador","Senegal","Mexiko","Elfenbenskusten","Kroatien","Norge","Turkiet","Österrike","Belgien","Sydkorea","Colombia","England","Spanien","Algeriet","Schweiz","Nya Zeeland","Argentina","Uruguay","Portugal","Ghana","Australien","Egypten"],"r16":["Tyskland","Frankrike","Czechia","Nederländerna","Brasilien","Ecuador","Mexiko","Kroatien","England","Spanien","Turkiet","Belgien","Argentina","Egypten","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","Kroatien","Argentina","Portugal"],"sf":["Frankrike","Spanien","Kroatien","Argentina"],"final":["Frankrike","Argentina"]},"Holm":{"r32":["Sydkorea","Kanada","Tyskland","Sverige","Nederländerna","Marocko","Brasilien","Japan","Frankrike","Iran","Elfenbenskusten","Norge","Mexiko","Ecuador","England","Senegal","USA","Bosnien-Herzigovina","Belgien","Czechia","Colombia","Kroatien","Spanien","Algeriet","Schweiz","Österrike","Argentina","Uruguay","Portugal","Ghana","Australien","Egypten"],"r16":["Tyskland","Frankrike","Kanada","Nederländerna","Japan","Norge","Mexiko","England","Kroatien","Spanien","USA","Belgien","Argentina","Egypten","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Norge","England","Argentina","Schweiz"],"sf":["Frankrike","Spanien","England","Schweiz"],"final":["Frankrike","England"]},"Kuffen":{"r32":["Sydkorea","Kanada","Tyskland","Paraguay","Nederländerna","Marocko","Brasilien","Sverige","Frankrike","Japan","Ecuador","Norge","Mexiko","Skottland","England","Kongo","Turkiet","Bosnien-Herzigovina","Belgien","Elfenbenskusten","Colombia","Kroatien","Spanien","Österrike","Schweiz","Algeriet","Argentina","Uruguay","Portugal","Senegal","USA","Egypten"],"r16":["Tyskland","Frankrike","Sydkorea","Nederländerna","Brasilien","Norge","Mexiko","England","Kroatien","Spanien","Turkiet","Belgien","Argentina","USA","Schweiz","Portugal"],"qf":["Tyskland","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Tyskland","Spanien","England","Argentina"],"final":["Spanien","England"]},"Levin":{"r32":["Mexiko","Bosnien-Herzigovina","Tyskland","Skottland","Japan","Marocko","Brasilien","Sverige","Norge","USA","Elfenbenskusten","Frankrike","Czechia","Saudiarabien","England","Senegal","Paraguay","Nederländerna","Belgien","Sydkorea","Colombia","Kroatien","Spanien","Österrike","Schweiz","Ecuador","Argentina","Uruguay","Portugal","Ghana","Turkiet","Egypten"],"r16":["Tyskland","Norge","Mexiko","Japan","Brasilien","Frankrike","Czechia","England","Kroatien","Spanien","Nederländerna","Belgien","Argentina","Turkiet","Schweiz","Portugal"],"qf":["Norge","Japan","Spanien","Belgien","Frankrike","England","Argentina","Portugal"],"sf":["Norge","Spanien","England","Argentina"],"final":["Spanien","Argentina"]},"Pacman":{"r32":["Czechia","Qatar","Tyskland","Australien","Nederländerna","Marocko","Brasilien","Sverige","Frankrike","Japan","Elfenbenskusten","Norge","Mexiko","Skottland","England","Senegal","Turkiet","Ecuador","Belgien","Sydkorea","Colombia","Kroatien","Spanien","Österrike","Schweiz","Iran","Argentina","Uruguay","Portugal","Panama","Paraguay","Egypten"],"r16":["Tyskland","Frankrike","Czechia","Nederländerna","Brasilien","Norge","Mexiko","England","Kroatien","Spanien","Turkiet","Belgien","Argentina","Paraguay","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","Brasilien","Argentina"],"final":["Frankrike","Argentina"]},"Ponk":{"r32":["Sydkorea","Kanada","Tyskland","Skottland","Japan","Marocko","Brasilien","Nederländerna","Frankrike","Sverige","Elfenbenskusten","Norge","Mexiko","Ecuador","England","Senegal","USA","Bosnien-Herzigovina","Belgien","Czechia","Colombia","Kroatien","Spanien","Österrike","Schweiz","Algeriet","Argentina","Uruguay","Portugal","Ghana","Turkiet","Iran"],"r16":["Tyskland","Frankrike","Sydkorea","Japan","Brasilien","Norge","Mexiko","England","Kroatien","Spanien","USA","Belgien","Argentina","Turkiet","Schweiz","Portugal"],"qf":["Frankrike","Japan","Spanien","USA","Brasilien","England","Argentina","Schweiz"],"sf":["Frankrike","Spanien","Brasilien","Argentina"],"final":["Frankrike","Brasilien"]},"Richard":{"r32":["Sydkorea","Kanada","Tyskland","Skottland","Nederländerna","Marocko","Brasilien","Japan","Frankrike","Sverige","Ecuador","Norge","Mexiko","Elfenbenskusten","England","Kongo","USA","Algeriet","Belgien","Czechia","Colombia","Kroatien","Spanien","Österrike","Schweiz","Egypten","Argentina","Uruguay","Portugal","Senegal","Turkiet","Iran"],"r16":["Tyskland","Frankrike","Kanada","Nederländerna","Brasilien","Norge","Mexiko","England","Colombia","Spanien","USA","Belgien","Argentina","Turkiet","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","Brasilien","Argentina"],"final":["Frankrike","Brasilien"]},"Rostedt":{"r32":["Czechia","Kanada","Tyskland","Skottland","Nederländerna","Marocko","Brasilien","Japan","Frankrike","Paraguay","Elfenbenskusten","Norge","Mexiko","Saudiarabien","England","Senegal","Turkiet","Bosnien-Herzigovina","Egypten","Sydkorea","Colombia","Kroatien","Spanien","Österrike","Schweiz","Iran","Argentina","Uruguay","Portugal","Ecuador","USA","Belgien"],"r16":["Tyskland","Frankrike","Czechia","Marocko","Brasilien","Norge","Mexiko","England","Kroatien","Spanien","Turkiet","Egypten","Argentina","Belgien","Schweiz","Portugal"],"qf":["Frankrike","Marocko","Spanien","Egypten","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","England","Portugal"],"final":["Spanien","England"]},"Mats":{"r32":["Mexiko","Kanada","Tyskland","Skottland","Japan","Marocko","Brasilien","Nederländerna","Frankrike","Paraguay","Ecuador","Norge","Sydkorea","Elfenbenskusten","England","Algeriet","Turkiet","Bosnien-Herzigovina","Belgien","Czechia","Colombia","Kroatien","Spanien","Österrike","Schweiz","Egypten","Argentina","Uruguay","Portugal","Ghana","USA","Iran"],"r16":["Tyskland","Frankrike","Mexiko","Japan","Brasilien","Ecuador","Sydkorea","England","Colombia","Spanien","Turkiet","Belgien","Argentina","USA","Schweiz","Portugal"],"qf":["Frankrike","Japan","Spanien","Turkiet","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","England","Argentina"],"final":["Spanien","Argentina"]},"Måns":{"r32":["Mexiko","Bosnien-Herzigovina","Ecuador","Skottland","Japan","Brasilien","Marocko","Nederländerna","Frankrike","Sverige","Tyskland","Norge","Sydkorea","Elfenbenskusten","England","Senegal","Turkiet","Kanada","Belgien","Algeriet","Uzbekistan","Kroatien","Spanien","Österrike","Schweiz","Egypten","Argentina","Uruguay","Portugal","Ghana","Paraguay","Iran"],"r16":["Ecuador","Frankrike","Mexiko","Japan","Marocko","Norge","Elfenbenskusten","England","Kroatien","Spanien","Turkiet","Belgien","Argentina","Paraguay","Schweiz","Portugal"],"qf":["Frankrike","Japan","Spanien","Turkiet","Norge","England","Argentina","Portugal"],"sf":["Japan","Spanien","Norge","Argentina"],"final":["Spanien","Argentina"]},"Odhe":{"r32":["Czechia","Kanada","Tyskland","Australien","Nederländerna","Marocko","Brasilien","Sverige","Frankrike","Japan","Elfenbenskusten","Senegal","Mexiko","Skottland","England","Norge","USA","Ecuador","Belgien","Sydafrika","Colombia","Kroatien","Spanien","Österrike","Schweiz","Algeriet","Argentina","Uruguay","Portugal","Ghana","Turkiet","Egypten"],"r16":["Tyskland","Frankrike","Kanada","Nederländerna","Brasilien","Senegal","Mexiko","England","Colombia","Spanien","USA","Belgien","Argentina","Turkiet","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","Brasilien","Argentina"],"final":["Frankrike","Brasilien"]},"Scout":{"r32":["Czechia","Kanada","Tyskland","Turkiet","Nederländerna","Skottland","Brasilien","Sverige","Norge","Japan","Elfenbenskusten","Frankrike","Mexiko","Kap Verde","England","Kongo","Paraguay","Ecuador","Belgien","Sydkorea","Colombia","Kroatien","Spanien","Österrike","Schweiz","Iran","Argentina","Uruguay","Portugal","Ghana","USA","Egypten"],"r16":["Tyskland","Norge","Kanada","Nederländerna","Brasilien","Frankrike","Mexiko","England","Kroatien","Spanien","Paraguay","Belgien","Argentina","USA","Schweiz","Portugal"],"qf":["Norge","Nederländerna","Spanien","Belgien","Frankrike","England","Argentina","Portugal"],"sf":["Norge","Spanien","Frankrike","Argentina"],"final":["Spanien","Frankrike"]},"Simon":{"r32":["Sydkorea","Schweiz","Tyskland","Skottland","Nederländerna","Marocko","Brasilien","Japan","Frankrike","Sverige","Ecuador","Norge","Mexiko","Saudiarabien","England","Algeriet","Turkiet","Qatar","Belgien","Czechia","Colombia","Kroatien","Spanien","Österrike","Kanada","Iran","Argentina","Uruguay","Portugal","Paraguay","USA","Egypten"],"r16":["Tyskland","Frankrike","Schweiz","Nederländerna","Brasilien","Norge","Mexiko","England","Colombia","Spanien","Turkiet","Belgien","Argentina","USA","Kanada","Portugal"],"qf":["Frankrike","Schweiz","Spanien","Turkiet","Norge","England","Argentina","Kanada"],"sf":["Frankrike","Spanien","England","Argentina"],"final":["Spanien","England"]},"Sjöstedt":{"r32":["Mexiko","Kanada","Tyskland","Paraguay","Nederländerna","Marocko","Brasilien","Japan","Frankrike","Sverige","Ecuador","Norge","Sydkorea","Skottland","England","Algeriet","Turkiet","Bosnien-Herzigovina","Belgien","Czechia","Colombia","Kroatien","Spanien","Österrike","Schweiz","Iran","Argentina","Uruguay","Portugal","Elfenbenskusten","USA","Egypten"],"r16":["Tyskland","Frankrike","Mexiko","Nederländerna","Brasilien","Norge","Sydkorea","England","Colombia","Spanien","Turkiet","Belgien","Argentina","Egypten","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","England","Argentina"],"final":["Frankrike","England"]},"Tomas S":{"r32":["Mexiko","Schweiz","Tyskland","Skottland","Japan","Brasilien","Marocko","Nederländerna","Frankrike","Turkiet","Elfenbenskusten","Senegal","Sydkorea","Ecuador","England","Norge","USA","Bosnien-Herzigovina","Egypten","Czechia","Portugal","Kroatien","Spanien","Algeriet","Kanada","Österrike","Argentina","Uruguay","Colombia","Ghana","Paraguay","Belgien"],"r16":["Tyskland","Frankrike","Mexiko","Brasilien","Nederländerna","Senegal","Sydkorea","England","Kroatien","Spanien","USA","Egypten","Argentina","Paraguay","Kanada","Ghana"],"qf":["Frankrike","Mexiko","Spanien","USA","Senegal","England","Argentina","Kanada"],"sf":["Frankrike","Spanien","England","Argentina"],"final":["Spanien","England"]},"Widfeldt":{"r32":["Czechia","Bosnien-Herzigovina","Tyskland","USA","Nederländerna","Marocko","Brasilien","Japan","Frankrike","Sverige","Ecuador","Norge","Mexiko","Skottland","England","Senegal","Paraguay","Kanada","Belgien","Elfenbenskusten","Colombia","Kroatien","Spanien","Österrike","Schweiz","Algeriet","Argentina","Uruguay","Portugal","Ghana","Turkiet","Egypten"],"r16":["Tyskland","Frankrike","Czechia","Nederländerna","Brasilien","Norge","Mexiko","England","Colombia","Spanien","Paraguay","Belgien","Argentina","Turkiet","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","England","Portugal"],"final":["Frankrike","England"]},"Åke":{"r32":["Czechia","Bosnien-Herzigovina","Tyskland","Skottland","Nederländerna","Marocko","Brasilien","Tunisien","Frankrike","Sverige","Ecuador","Norge","Mexiko","Uruguay","England","Algeriet","USA","Qatar","Belgien","Sydkorea","Colombia","Kroatien","Spanien","Österrike","Schweiz","Nya Zeeland","Argentina","Saudiarabien","Portugal","Panama","Turkiet","Egypten"],"r16":["Tyskland","Frankrike","Czechia","Nederländerna","Brasilien","Norge","Mexiko","England","Colombia","Spanien","USA","Belgien","Argentina","Turkiet","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","USA","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","Brasilien","Argentina"],"final":["Spanien","Brasilien"]}}};
 function matchdaySchedule() {
   return VMDATA.schedule.filter(m => m.n <= GROUP_LAST_MATCH);
 }
