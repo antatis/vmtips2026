@@ -186,6 +186,12 @@
     transition: all 0.15s;
   }
   .toggle-btn.active { border-color: var(--yellow); color: var(--yellow); background: rgba(255,230,32,0.12); }
+  .tabbar { gap: 5px; }
+  .tabbar .toggle-btn { flex: 1; min-width: 0; padding: 7px 4px; font-size: 12px; }
+  @media (max-width: 420px) {
+    .tabbar { gap: 4px; }
+    .tabbar .toggle-btn { padding: 7px 2px; font-size: 11px; }
+  }
 
   .chart-wrap {
     background: var(--surface);
@@ -452,11 +458,11 @@
   <div class="status" id="statusMsg"></div>
 
   <div id="dashboard">
-    <div class="view-toggle" style="margin-bottom:1.5rem;">
+    <div class="view-toggle tabbar" style="margin-bottom:1.5rem;">
       <button class="toggle-btn active" id="tabVM" onclick="showTab('vm')" style="display:flex;flex-direction:column;align-items:center;gap:2px;"><span>⚽</span><span>Poäng</span></button>
       <button class="toggle-btn" id="tabMatchday" onclick="showTab('matchday')" style="display:flex;flex-direction:column;align-items:center;gap:2px;"><span>📅</span><span>Speldag</span></button>
-      <button class="toggle-btn" id="tabMarathon" onclick="showTab('marathon')" style="display:flex;flex-direction:column;align-items:center;gap:2px;"><span>🏅</span><span>Maraton</span></button>
       <button class="toggle-btn" id="tabInsights" onclick="showTab('insights')" style="display:flex;flex-direction:column;align-items:center;gap:2px;"><span>📊</span><span>Analys</span></button>
+      <button class="toggle-btn" id="tabMarathon" onclick="showTab('marathon')" style="display:flex;flex-direction:column;align-items:center;gap:2px;"><span>🏅</span><span>Maraton</span></button>
       <button class="toggle-btn" id="tabGuestbook" onclick="showTab('guestbook')" style="display:flex;flex-direction:column;align-items:center;gap:2px;"><span>📖</span><span>GB</span></button>
     </div>
     <div id="mainView">
@@ -476,6 +482,12 @@
     </div>
 
     <p class="section-title">Ställning</p>
+    <label class="toggle-switch" style="margin-bottom:1rem;">
+      <input type="checkbox" id="simToggle" onchange="setStandingsMode(this.checked ? 'whatif' : 'standings')" />
+      <span class="toggle-track"><span class="toggle-thumb"></span></span>
+      <span class="toggle-label">Simulera</span>
+    </label>
+    <div id="simControls" style="display:none;"></div>
     <div class="leaderboard" id="leaderboard"></div>
 
     <div class="panel" id="adminPanel" style="display:none;">
@@ -503,7 +515,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v0.38</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v0.49</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -636,8 +648,53 @@ function renderMetricCards() {
 }
 function renderLeaderboard(players) {
   const el = document.getElementById('leaderboard');
-  if (!players.length) { el.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--muted);font-size:14px;">Inga deltagare ännu</div>'; return; }
-  // Shared/tied ranking: same points => same rank, next rank skips
+  if (!players || !players.length) { el.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--muted);font-size:14px;">Inga deltagare ännu</div>'; return; }
+
+  // Simulation mode?
+  let sim = null;
+  if (standingsMode === 'whatif' && whatIfMatch != null) {
+    const hh = whatIfHome === '' ? null : parseInt(whatIfHome, 10);
+    const aa = whatIfAway === '' ? null : parseInt(whatIfAway, 10);
+    if (hh != null && aa != null && !isNaN(hh) && !isNaN(aa)) {
+      const ao = hh > aa ? '1' : hh < aa ? '2' : 'X';
+      const beforeRanks = sharedRank(players.map(p => ({ name:p.name, points:p.points }))).ranks;
+      const after = players.map(p => {
+        const t = (VMDATA.tips[p.name]||{})[String(whatIfMatch)];
+        let g = 0;
+        if (t) { if (t[0]===hh) g++; if (t[1]===aa) g++; const to = t[0]>t[1]?'1':t[0]<t[1]?'2':'X'; if (to===ao) g+=3; }
+        return { name:p.name, points:p.points+g, gain:g };
+      });
+      const ar = sharedRank(after);
+      sim = { sorted: ar.sorted, ranks: ar.ranks, beforeRanks };
+    }
+  }
+
+  if (sim) {
+    el.innerHTML = sim.sorted.map(p => {
+      const r = sim.ranks[p.name];
+      const delta = sim.beforeRanks[p.name] - r;
+      const arrow = delta>0?`<span style="color:#63e6be;">▲${delta}</span>`:delta<0?`<span style="color:#ff8787;">▼${-delta}</span>`:'<span style="color:var(--muted);">–</span>';
+      const gained = p.gain > 0;
+      let rd = r; if (r===1) rd='🥇'; else if (r===2) rd='🥈'; else if (r===3) rd='🥉';
+      return `<div class="lb-row ${r===1?'first':''}${delta>0?'':''}" style="${delta>0?'background:rgba(99,230,190,0.06);':''}">
+        <span class="lb-rank">${rd}</span>
+        <span class="lb-name">${p.name}</span>
+        <span style="font-size:12px;color:${gained?'#63e6be':'var(--muted)'};min-width:30px;text-align:right;">${gained?'+'+p.gain:''}</span>
+        <span class="lb-pts">${p.points}</span>
+        <span style="font-size:12px;min-width:28px;text-align:right;">${arrow}</span>
+      </div>`;
+    }).join('');
+    const sum = document.getElementById('simSummary');
+    if (sum) {
+      let best=null; sim.sorted.forEach(p=>{ const d=sim.beforeRanks[p.name]-sim.ranks[p.name]; if(d>0&&(!best||d>best.d)) best={name:p.name,d}; });
+      sum.innerHTML = best
+        ? `Störst klättrare: <span style="color:var(--yellow);">${best.name}</span> (+${best.d} ${best.d===1?'placering':'placeringar'})`
+        : 'Ingen byter placering med det resultatet.';
+    }
+    return;
+  }
+
+  // Normal standings
   let rank = 1;
   const ranked = players.map((p, i) => {
     if (i > 0 && p.points < players[i-1].points) rank = i + 1;
@@ -648,15 +705,16 @@ function renderLeaderboard(players) {
     if (p.rank === 1) rankDisplay = '🥇';
     else if (p.rank === 2) rankDisplay = '🥈';
     else if (p.rank === 3) rankDisplay = '🥉';
-    const isLeader = p.rank === 1;
     return `
-    <div class="lb-row ${isLeader?'first':''}">
+    <div class="lb-row ${p.rank===1?'first':''}">
       <span class="lb-rank">${rankDisplay}</span>
       <span class="lb-dot" style="background:${PALETTE[i%PALETTE.length]}"></span>
       <span class="lb-name">${p.name}</span>
       <span class="lb-pts">${p.points}</span>
     </div>`;
   }).join('');
+  const sum = document.getElementById('simSummary');
+  if (sum && standingsMode === 'whatif') sum.innerHTML = 'Fyll i ett resultat för att simulera.';
 }
 function setView(v) {
   currentView = v;
@@ -664,6 +722,53 @@ function setView(v) {
   document.getElementById('btnRank').className = 'toggle-btn' + (v==='rank'?' active':'');
   renderChart();
 }
+
+// ── Simulera (match-simulator) ──────────────────────────────────
+let whatIfMatch = null, whatIfHome = '', whatIfAway = '';
+let standingsMode = 'standings'; // 'standings' | 'whatif'
+function sharedRank(arr) {
+  const sorted = [...arr].sort((a,b)=> b.points-a.points || a.name.localeCompare(b.name,'sv'));
+  const ranks = {}; let rank = 1;
+  sorted.forEach((p,i) => { if (i>0 && p.points < sorted[i-1].points) rank = i+1; ranks[p.name] = rank; });
+  return { ranks, sorted };
+}
+function setStandingsMode(mode) {
+  standingsMode = mode;
+  const sc = document.getElementById('simControls');
+  sc.style.display = mode==='whatif' ? '' : 'none';
+  if (mode==='whatif') renderSimControls();
+  if (currentData) renderLeaderboard(currentData);
+}
+function renderSimControls() {
+  const sc = document.getElementById('simControls');
+  if (!sc) return;
+  if (!currentData || !currentData.length) { sc.innerHTML = '<p style="font-size:13px;color:var(--muted);margin-bottom:12px;">Ingen ställning sparad ännu.</p>'; return; }
+  const groupMatches = VMDATA.schedule.filter(m => m.n <= 72);
+  if (whatIfMatch == null) whatIfMatch = groupMatches[0].n;
+  const matchOpts = groupMatches.map(m => `<option value="${m.n}"${m.n===whatIfMatch?' selected':''}>M${m.n}: ${m.h} – ${m.a}</option>`).join('');
+  const selStyle = "width:100%;padding:9px 30px 9px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:'DM Sans',sans-serif;outline:none;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"%23a0c4e0\" stroke-width=\"2\"><path d=\"M6 9l6 6 6-6\"/></svg>');background-repeat:no-repeat;background-position:right 10px center;cursor:pointer;";
+  const numStyle = "width:54px;text-align:center;padding:8px 4px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:16px;font-family:'Bebas Neue',sans-serif;outline:none;";
+  const m = groupMatches.find(x => x.n === whatIfMatch);
+  sc.innerHTML = `
+    <div style="margin-bottom:10px;"><select onchange="setWhatIfMatch(this.value)" style="${selStyle}">${matchOpts}</select></div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:8px;">
+      <span style="flex:1;text-align:right;font-size:14px;color:var(--text);">${m.h}</span>
+      <input type="number" min="0" inputmode="numeric" value="${whatIfHome}" oninput="setWhatIfScore('h',this.value)" style="${numStyle}" />
+      <span style="color:var(--muted);">–</span>
+      <input type="number" min="0" inputmode="numeric" value="${whatIfAway}" oninput="setWhatIfScore('a',this.value)" style="${numStyle}" />
+      <span style="flex:1;text-align:left;font-size:14px;color:var(--text);">${m.a}</span>
+    </div>
+    <p id="simSummary" style="font-size:13px;color:var(--muted);margin-bottom:12px;text-align:center;"></p>
+  `;
+}
+function setWhatIfMatch(n) { whatIfMatch = parseInt(n,10); renderSimControls(); if (currentData) renderLeaderboard(currentData); }
+function setWhatIfScore(which, val) {
+  const v = (val+'').replace(/[^0-9]/g,'').slice(0,2);
+  if (which === 'h') whatIfHome = v; else whatIfAway = v;
+  if (currentData) renderLeaderboard(currentData);
+}
+// ── End Simulera ────────────────────────────────────────────────
+
 function renderChart() {
   const canvas = document.getElementById('historyChart');
   const placeholder = document.getElementById('chartPlaceholder');
@@ -1069,8 +1174,8 @@ function renderInsights() {
     <div class="view-toggle" style="margin-bottom:1.25rem;flex-wrap:wrap;">
       <button class="toggle-btn ${insightView==='h2h'?'active':''}" onclick="setInsightView('h2h')">Head-to-head</button>
       <button class="toggle-btn ${insightView==='kuriosa'?'active':''}" onclick="setInsightView('kuriosa')">Gruppspel</button>
-      <button class="toggle-btn ${insightView==='bonus'?'active':''}" onclick="setInsightView('bonus')">Bonusfrågor</button>
       <button class="toggle-btn ${insightView==='slutspel'?'active':''}" onclick="setInsightView('slutspel')">Slutspel</button>
+      <button class="toggle-btn ${insightView==='bonus'?'active':''}" onclick="setInsightView('bonus')">Bonusfrågor</button>
     </div>`;
 
   let body = '';
@@ -1168,9 +1273,10 @@ function renderH2H() {
     ${selectors}
     ${summary}
     <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface);">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--yellow);font-weight:600;">
-        <span style="white-space:nowrap;">${h2hA}</span>
-        <span style="white-space:nowrap;">${h2hB}</span>
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);">
+        <span style="white-space:nowrap;color:var(--yellow);font-weight:600;font-size:12px;">${h2hA}</span>
+        <span style="flex:1;text-align:center;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Match</span>
+        <span style="white-space:nowrap;color:var(--yellow);font-weight:600;font-size:12px;">${h2hB}</span>
       </div>
       ${rowsHtml}
     </div>`;
@@ -1312,7 +1418,6 @@ function renderSlutspel() {
     </div>`;
 
   return `<p class="section-title">Slutspel</p>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">Baserat på allas slutspelsträd.</p>
     ${block('Ensam om sin världsmästare 🏆', uniqueRows(uniqueChamp))}
     ${block('Ensam om en finalist', uniqueRows(uniqueFin))}
     ${block('Mest mot strömmen i slutspelet <span style="color:var(--muted);font-weight:400;font-size:11px;">(gult = avvikande lag)</span>', devRows)}
@@ -1361,7 +1466,6 @@ function renderBonus() {
   }).join('');
 
   return `<p class="section-title">Bonusfrågor</p>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">Allas svar på bonusfrågorna – unika svar markeras i gult.</p>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
       <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Modigaste bonustipparen</div>
       <div style="font-family:'Bebas Neue',sans-serif;font-size:1.35rem;color:var(--yellow);line-height:1.05;">${bravest}</div>
@@ -1496,7 +1600,6 @@ function renderKuriosa() {
   }).join('');
 
   return `<p class="section-title">Gruppspel</p>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">Fakta uträknade ur allas gruppspelstips.</p>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:1.5rem;">${cards}</div>
     <p class="section-title">Wildcard-tipparen</p>
     <p style="font-size:12px;color:var(--muted);margin-bottom:12px;max-width:520px;">Vem tippar mest mot strömmen? Poäng ges för att avvika från majoritetens utfall — mest när man är ensam — plus en mindre bonus för ovanliga exakta resultat.</p>
