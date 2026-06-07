@@ -233,7 +233,8 @@
   .lb-row.first .lb-rank { color: var(--yellow); }
   .lb-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .lb-name { flex: 1; font-size: 15px; color: var(--white); }
-  .lb-pts { font-family: "Bebas Neue", sans-serif; font-size: 1.4rem; color: var(--yellow); letter-spacing: 0.03em; }
+  .lb-pts { font-family: "Bebas Neue", sans-serif; font-size: 1.4rem; color: var(--yellow); letter-spacing: 0.03em; min-width: 46px; text-align: right; }
+  .lb-gain { min-width: 34px; text-align: right; font-size: 11px; color: #63e6be; }
 
   .panel {
     background: var(--surface);
@@ -467,12 +468,15 @@
     </div>
     <div id="mainView">
 
+    <div id="metricCards" style="margin-bottom:1.5rem;"></div>
+
     <p class="section-title">Poängutveckling</p>
     <div class="view-toggle">
       
       <button class="toggle-btn active" id="btnPoints" onclick="setView('points')">Poäng</button>
       <button class="toggle-btn" id="btnRank" onclick="setView('rank')">Placering</button>
     </div>
+    <div id="chartFocusWrap" style="margin-bottom:10px;display:none;"></div>
     <div class="chart-wrap">
       <canvas id="historyChart" role="img" aria-label="Poängutveckling per deltagare"></canvas>
       <div class="chart-placeholder" id="chartPlaceholder">
@@ -506,6 +510,11 @@
           <span class="btn sm blue">🔄 Ladda ny version av filen</span>
         </label>
       </div>
+      <div class="row" style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
+        <button class="btn sm" onclick="loadDemoData()">👁 Visa exempeldata</button>
+        <button class="btn sm danger" onclick="clearDemoData()">↺ Rensa exempel</button>
+        <span style="font-size:11px;color:var(--muted);align-self:center;">Bara lokalt – sparas inte.</span>
+      </div>
     </div>
 
     </div><!-- end mainView -->
@@ -517,7 +526,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v0.53</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v0.77</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -527,7 +536,7 @@ const ADMIN_HASH = 'af15e54bcd9596115570cdbb5404832511f0b43846624545f589bd3bc983
 const PALETTE = ['#FFE620','#4dabf7','#f06595','#a9e34b','#74c0fc','#ff8787','#63e6be','#e599f7','#ffa94d','#69db7c','#f783ac','#ffe066','#c0eb75','#4dabf7','#ff8787'];
 const SKIP_SHEETS = ['Poäng & instruktioner','Mitt slutspelsträd','Resultat & tabell','Mitt tips','Resultat & tabell (backup)','Third-place combinations'];
 
-let currentData = null, historyChart = null, currentView = 'points', adminMode = false, snapshots = [];
+let currentData = null, historyChart = null, currentView = 'points', adminMode = false, snapshots = [], chartFocus = null, chartHidden = new Set();
 
 function loading(show, msg='Sparar...') {
   document.getElementById('loadingOverlay').style.display = show ? 'flex' : 'none';
@@ -579,7 +588,7 @@ async function saveSnapshot() {
     currentData.forEach(p => scores[p.name] = p.points);
     await supabase('POST', 'snapshots', { label, scores });
     document.getElementById('snapshotLabel').value = '';
-    await loadSnapshots(); renderChart(); renderMetricCards();
+    await loadSnapshots(); renderChart(); renderMetricCards(); renderTournamentStats();
     setStatus('Snapshot sparad: ' + label);
   } catch(e) { setStatus('Fel vid sparning: ' + e.message, true); }
   loading(false);
@@ -591,7 +600,7 @@ async function deleteLastSnapshot() {
   loading(true, 'Tar bort...');
   try {
     await supabase('DELETE', 'snapshots?id=eq.' + last.id);
-    await loadSnapshots(); renderChart(); renderMetricCards();
+    await loadSnapshots(); renderChart(); renderMetricCards(); renderTournamentStats();
     setStatus('Snapshot borttagen.');
   } catch(e) { setStatus('Fel: ' + e.message, true); }
   loading(false);
@@ -647,6 +656,86 @@ function handleFile2(input) {
 function renderMetricCards() {
   const el = document.getElementById('metricCards');
   if (!el) return;
+  const data = currentData || [];
+  const maxPts = data.length ? Math.max(0, ...data.map(p => p.points)) : 0;
+
+  // Ledare
+  let leaderNames = [], leaderSub = '';
+  if (maxPts > 0) {
+    leaderNames = data.filter(p => p.points === maxPts).map(p => p.name).sort((a,b)=>a.localeCompare(b,'sv'));
+    leaderSub = maxPts + ' p';
+  }
+
+  // Dagens vinnare (störst poängskörd senaste speldagen)
+  let winNames = [], winSub = '';
+  const snaps = (snapshots||[]).filter(s => s && s.scores);
+  if (snaps.length >= 2 && maxPts > 0) {
+    const prev = snaps[snaps.length-2].scores, cur = snaps[snaps.length-1].scores;
+    const names = [...new Set([...Object.keys(prev), ...Object.keys(cur)])];
+    const gains = names.map(n => ({ name:n, g:(Number(cur[n])||0)-(Number(prev[n])||0) })).sort((a,b)=> b.g-a.g || a.name.localeCompare(b.name,'sv'));
+    if (gains.length && gains[0].g > 0) {
+      const top = gains[0].g;
+      winNames = gains.filter(x => x.g === top).map(x => x.name).sort((a,b)=>a.localeCompare(b,'sv'));
+      winSub = '+' + top + ' p';
+    }
+  }
+
+  // Form (heta & kalla) — namn + 5 senaste resultaten + gruppsnitt
+  let hotName = '–', coldName = '', hotSeq = '', coldSeq = '', groupAvg = null, formDays = 0;
+  if (snaps.length >= 2 && maxPts > 0) {
+    const fnames = [...new Set(snaps.flatMap(s => Object.keys(s.scores)))];
+    const ivals = [];
+    for (let i=1;i<snaps.length;i++) { const pr=snaps[i-1].scores, cu=snaps[i].scores; const gg={}; fnames.forEach(n=>gg[n]=(Number(cu[n])||0)-(Number(pr[n])||0)); ivals.push(gg); }
+    const k = Math.min(5, ivals.length);
+    const lastK = ivals.slice(-k);
+    formDays = lastK.length;
+    const form = {}; fnames.forEach(n => { form[n] = lastK.reduce((s,iv)=>s+(iv[n]||0),0); });
+    const fr = fnames.slice().sort((a,b)=> form[b]-form[a] || a.localeCompare(b,'sv'));
+    const seq = name => { const vals = lastK.map(iv => iv[name]||0); return vals.map((v,i) => i === vals.length-1 ? `<span style="color:var(--yellow);">${v}</span>` : String(v)).join(' · '); };
+    if (fr.length && form[fr[0]] > 0) { hotName = fr[0]; hotSeq = seq(hotName); }
+    const lastN = fr.length ? fr[fr.length-1] : null;
+    if (lastN && lastN !== fr[0]) { coldName = lastN; coldSeq = seq(lastN); }
+    const groupTotal = fnames.reduce((s,n)=>s+form[n],0);
+    groupAvg = groupTotal / (fnames.length * k);
+  }
+  const fmt1 = x => x == null ? '' : x.toFixed(1).replace('.', ',');
+
+  // Värde för namn-rutor: 1 namn = stort, flera = kommaseparerat (max 3 + "+N fler")
+  const namesValue = (names) => {
+    if (!names.length) return `<div style="font-family:'Bebas Neue',sans-serif;font-size:2.1rem;color:var(--yellow);">–</div>`;
+    if (names.length === 1) return `<div style="font-family:'Bebas Neue',sans-serif;font-size:2.1rem;color:var(--yellow);line-height:1.05;word-break:break-word;">${names[0]}</div>`;
+    const shown = names.slice(0,3).join(', ');
+    const extra = names.length > 3 ? ` <span style="color:var(--muted);">+${names.length-3} till</span>` : '';
+    return `<div style="font-size:16px;font-weight:700;color:var(--yellow);line-height:1.45;">${shown}${extra}</div>`;
+  };
+
+  const cardBox = (label, innerHtml, sub) => `<div style="flex:1;min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 8px;text-align:center;display:flex;flex-direction:column;">
+      <div style="font-size:11px;color:#a0c4e0;text-transform:uppercase;letter-spacing:0.1em;font-weight:700;margin-bottom:8px;">${label}</div>
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;">${innerHtml}</div>
+      ${sub?`<div style="font-size:1.05rem;color:var(--white);font-weight:700;margin-top:8px;">${sub}</div>`:''}
+    </div>`;
+
+  const formLine = (emoji, name, color, seq) => `<div style="display:flex;align-items:baseline;gap:6px;">
+        <span style="width:20px;text-align:center;flex-shrink:0;">${emoji}</span>
+        <span style="font-size:15px;font-weight:700;color:${color};">${name}</span>
+      </div>
+      <div style="text-align:center;font-size:13px;color:var(--white);font-weight:600;letter-spacing:0.04em;">${seq}</div>`;
+  const formInner = (maxPts <= 0 || hotName === '–')
+    ? `<div style="font-family:'Bebas Neue',sans-serif;font-size:2.1rem;color:var(--muted);">–</div>`
+    : `<div style="text-align:center;">
+        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Poäng per speldag (Senaste ${formDays})</div>
+        <div style="display:inline-block;text-align:left;">
+          ${formLine('🔥', hotName, '#63e6be', hotSeq)}
+          ${coldName ? `<div style="height:8px;"></div>` + formLine('🥶', coldName, '#ff8787', coldSeq) : ''}
+        </div>
+        ${groupAvg != null ? `<div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:10px;">Gruppsnitt: ${fmt1(groupAvg)} p/dag</div>` : ''}
+      </div>`;
+
+  el.innerHTML = `<div style="display:flex;gap:8px;align-items:stretch;">
+      ${cardBox('Ledare', namesValue(leaderNames), leaderSub)}
+      ${cardBox('Dagens vinnare', namesValue(winNames), winSub)}
+      ${cardBox('Form', formInner, '')}
+    </div>`;
 }
 function renderLeaderboard(players) {
   const el = document.getElementById('leaderboard');
@@ -676,14 +765,15 @@ function renderLeaderboard(players) {
       const r = sim.ranks[p.name];
       const delta = sim.beforeRanks[p.name] - r;
       const arrow = delta>0?`<span style="color:#63e6be;">▲${delta}</span>`:delta<0?`<span style="color:#ff8787;">▼${-delta}</span>`:'<span style="color:var(--muted);">–</span>';
+      const arrowSpan = `<span style="font-size:12px;min-width:24px;text-align:center;">${arrow}</span>`;
       const gained = p.gain > 0;
       let rd = r; if (r===1) rd='🥇'; else if (r===2) rd='🥈'; else if (r===3) rd='🥉';
-      return `<div class="lb-row ${r===1?'first':''}${delta>0?'':''}" style="${delta>0?'background:rgba(99,230,190,0.06);':''}">
+      return `<div class="lb-row ${r===1?'first':''}" style="${delta>0?'background:rgba(99,230,190,0.06);':''}">
         <span class="lb-rank">${rd}</span>
+        ${arrowSpan}
         <span class="lb-name">${p.name}</span>
         <span style="font-size:12px;color:${gained?'#63e6be':'var(--muted)'};min-width:30px;text-align:right;">${gained?'+'+p.gain:''}</span>
         <span class="lb-pts">${p.points}</span>
-        <span style="font-size:12px;min-width:28px;text-align:right;">${arrow}</span>
       </div>`;
     }).join('');
     const sum = document.getElementById('simSummary');
@@ -697,21 +787,47 @@ function renderLeaderboard(players) {
   }
 
   // Normal standings
+  // Rörelse + dagens poängskörd sedan förra speldagen (om historik finns)
+  let prevRanks = null, dayGain = null;
+  const histSnaps = (snapshots||[]).filter(s => s && s.scores);
+  if (histSnaps.length >= 2) {
+    const mx = Math.max(0, ...Object.values(histSnaps[histSnaps.length-1].scores).map(Number));
+    if (mx > 0) {
+      prevRanks = snapRankMap(histSnaps[histSnaps.length-2].scores);
+      const prevS = histSnaps[histSnaps.length-2].scores, curS = histSnaps[histSnaps.length-1].scores;
+      dayGain = {}; Object.keys(curS).forEach(n => dayGain[n] = (Number(curS[n])||0) - (Number(prevS[n])||0));
+    }
+  }
   let rank = 1;
   const ranked = players.map((p, i) => {
     if (i > 0 && p.points < players[i-1].points) rank = i + 1;
     return { ...p, rank };
   });
+  const noPointsYet = Math.max(0, ...players.map(p => p.points)) === 0;
   el.innerHTML = ranked.map((p, i) => {
     let rankDisplay = p.rank;
-    if (p.rank === 1) rankDisplay = '🥇';
+    if (noPointsYet) rankDisplay = '–';
+    else if (p.rank === 1) rankDisplay = '🥇';
     else if (p.rank === 2) rankDisplay = '🥈';
     else if (p.rank === 3) rankDisplay = '🥉';
+    let arrow = '<span style="min-width:24px;"></span>';
+    if (prevRanks && prevRanks[p.name] != null) {
+      const delta = prevRanks[p.name] - p.rank;
+      arrow = delta > 0 ? `<span style="font-size:12px;color:#63e6be;min-width:24px;text-align:center;">▲${delta}</span>`
+            : delta < 0 ? `<span style="font-size:12px;color:#ff8787;min-width:24px;text-align:center;">▼${-delta}</span>`
+            : `<span style="font-size:12px;color:var(--muted);min-width:24px;text-align:center;">–</span>`;
+    } else {
+      arrow = '';
+    }
+    const g = dayGain ? dayGain[p.name] : null;
+    const gainCol = dayGain ? `<span class="lb-gain">${(g != null && g > 0) ? '+'+g : ''}</span>` : '';
     return `
     <div class="lb-row ${p.rank===1?'first':''}">
       <span class="lb-rank">${rankDisplay}</span>
+      ${arrow}
       <span class="lb-dot" style="background:${PALETTE[i%PALETTE.length]}"></span>
       <span class="lb-name">${p.name}</span>
+      ${gainCol}
       <span class="lb-pts">${p.points}</span>
     </div>`;
   }).join('');
@@ -774,27 +890,185 @@ function setWhatIfScore(which, val) {
 }
 // ── End Simulera ────────────────────────────────────────────────
 
+// ── Speldagsstatistik (ur snapshot-historiken) ──────────────────
+function snapRankMap(scores) {
+  const arr = Object.entries(scores).map(([name,points])=>({name,points:Number(points)||0}))
+    .sort((a,b)=> b.points-a.points || a.name.localeCompare(b.name,'sv'));
+  const ranks = {}; let rank = 1;
+  arr.forEach((p,i)=>{ if (i>0 && p.points < arr[i-1].points) rank = i+1; ranks[p.name] = rank; });
+  return ranks;
+}
+function renderTournamentStats() {
+  const el = document.getElementById('tournamentStats');
+  if (!el) return;
+  const snaps = (snapshots||[]).filter(s => s && s.scores);
+  if (snaps.length < 2) { el.innerHTML = ''; return; }
+  const lastScores = snaps[snaps.length-1].scores;
+  const maxPts = Math.max(0, ...Object.values(lastScores).map(Number));
+  if (maxPts <= 0) { el.innerHTML = ''; return; } // inga poäng än → dölj
+
+  const names = [...new Set(snaps.flatMap(s => Object.keys(s.scores)))];
+  // Per-speldag (intervall mellan på varandra följande snapshots)
+  const intervals = [];
+  for (let i=1;i<snaps.length;i++) {
+    const prev = snaps[i-1].scores, cur = snaps[i].scores;
+    const gains = {}; names.forEach(n => gains[n] = (Number(cur[n])||0) - (Number(prev[n])||0));
+    intervals.push({ label: snaps[i].label, gains });
+  }
+  const last = intervals[intervals.length-1];
+
+  const block = (title, inner) => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem 1.1rem;margin-bottom:12px;">
+      <div style="font-size:13px;color:var(--yellow);font-weight:500;margin-bottom:10px;">${title}</div>${inner}</div>`;
+
+  // 1) Senaste speldagen — poäng + dagens vinnare
+  const dayList = names.map(n => ({ name:n, g:last.gains[n] })).sort((a,b)=> b.g-a.g || a.name.localeCompare(b.name,'sv'));
+  const topGain = dayList[0].g;
+  const winners = dayList.filter(p => p.g === topGain && p.g > 0).map(p => p.name);
+  const maxG = topGain > 0 ? topGain : 1;
+  const dayRows = dayList.filter(p => p.g !== 0).map(p => `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">
+      <span style="flex:1;font-size:13px;color:var(--text);">${p.name}</span>
+      <span style="width:120px;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;"><span style="display:block;height:100%;width:${Math.round(Math.max(0,p.g)/maxG*100)}%;background:var(--yellow);"></span></span>
+      <span style="width:34px;text-align:right;font-family:'Bebas Neue',sans-serif;font-size:1.1rem;color:var(--yellow);">${p.g}</span>
+    </div>`).join('') || '<p style="font-size:13px;color:var(--muted);">Inga poäng den här speldagen.</p>';
+  const winnerLine = winners.length
+    ? `<p style="font-size:13px;color:var(--text);margin:0 0 10px;">🏆 Dagens vinnare: <span style="color:var(--yellow);">${winners.join(', ')}</span> (+${topGain} p)</p>`
+    : '';
+  const dayBlock = block(`Senaste speldagen · ${last.label}`, winnerLine + dayRows);
+
+  // 2) Form — heta & kalla (senaste upp till 3 speldagarna; mid visas ej)
+  const k = Math.min(3, intervals.length);
+  const form = {}; names.forEach(n => { let s=0; for (let i=intervals.length-k;i<intervals.length;i++) s += intervals[i].gains[n]; form[n]=s; });
+  const formRanked = names.slice().sort((a,b)=> form[b]-form[a] || a.localeCompare(b,'sv'));
+  const hot = formRanked.slice(0,3).filter(n => form[n] > 0);
+  const cold = formRanked.slice(-3).reverse().filter(n => !hot.includes(n));
+  const chip = (n, col) => `<span style="display:inline-flex;gap:6px;padding:4px 10px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid var(--border);font-size:13px;margin:0 6px 6px 0;"><span style="color:var(--text);">${n}</span><span style="color:${col};">${form[n]>0?'+':''}${form[n]}</span></span>`;
+  const formInner = `
+    <div style="margin-bottom:10px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">🔥 Heta</div>${hot.length?hot.map(n=>chip(n,'#63e6be')).join(''):'<span style="font-size:13px;color:var(--muted);">–</span>'}</div>
+    <div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">🥶 Kalla</div>${cold.length?cold.map(n=>chip(n,'#ff8787')).join(''):'<span style="font-size:13px;color:var(--muted);">–</span>'}</div>`;
+  const formBlock = block(`Form <span style="color:var(--muted);font-weight:400;font-size:11px;">(senaste ${k} ${k===1?'speldagen':'speldagarna'})</span>`, formInner);
+
+  el.innerHTML = `<p class="section-title" style="margin-top:0.5rem;">Speldagsstatistik</p>${dayBlock}${formBlock}`;
+}
+// ── End Speldagsstatistik ───────────────────────────────────────
+
+// ── Exempeldata (endast lokalt, sparas ej) ──────────────────────
+let _realSnapshots = null;
+function loadDemoData() {
+  if (_realSnapshots === null) _realSnapshots = snapshots;
+  const pls = VMDATA.players;
+  // deterministisk men varierad poängprogression över 6 speldagar
+  const days = ['11 jun', '12 jun', '13 jun', '14 jun', '15 jun', '16 jun'];
+  let cum = {}; pls.forEach(p => cum[p] = 0);
+  const demo = [{ label: 'Start', created_at: new Date(Date.now()-(days.length+1)*864e5).toISOString(), scores: {...cum} }];
+  days.forEach((label, di) => {
+    pls.forEach((p, i) => {
+      // pseudo-slumpmässig dagspoäng 0-13 baserad på namn+dag
+      const seed = (i*7 + di*13 + p.length*3) % 14;
+      cum[p] += seed;
+    });
+    demo.push({ label, created_at: new Date(Date.now()-(days.length-di)*864e5).toISOString(), scores: {...cum} });
+  });
+  snapshots = demo;
+  currentData = Object.entries(demo[demo.length-1].scores).map(([n,p])=>({name:n,points:p}))
+    .sort((a,b)=> b.points-a.points || a.name.localeCompare(b.name,'sv'));
+  renderLeaderboard(currentData); renderChart(); renderMetricCards(); renderTournamentStats();
+  setStatus('Exempeldata visas (lokalt – inte sparat).');
+}
+function clearDemoData() {
+  if (_realSnapshots === null) { setStatus('Ingen exempeldata aktiv.'); return; }
+  snapshots = _realSnapshots; _realSnapshots = null;
+  currentData = snapshots.length ? Object.entries(snapshots[snapshots.length-1].scores).map(([n,p])=>({name:n,points:p}))
+    .sort((a,b)=> b.points-a.points || a.name.localeCompare(b.name,'sv')) : [];
+  renderLeaderboard(currentData); renderChart(); renderMetricCards(); renderTournamentStats();
+  setStatus('Exempeldata rensad – riktig data återställd.');
+}
+// ── End Exempeldata ─────────────────────────────────────────────
+
+function renderChartFocus() {
+  const wrap = document.getElementById('chartFocusWrap');
+  if (!wrap) return;
+  const isRank = currentView === 'rank';
+  const src = isRank
+    ? (snapshots||[]).filter(s => s && s.scores && Math.max(0, ...Object.values(s.scores).map(Number)) > 0)
+    : (snapshots||[]);
+  if (src.length < 2) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  const allNames = [...new Set(src.flatMap(s => Object.keys(s.scores)))];
+  const colorOf = {}; allNames.forEach((n,i) => colorOf[n] = PALETTE[i % PALETTE.length]);
+  const names = allNames.slice().sort((a,b)=>a.localeCompare(b,'sv'));
+  if (chartFocus && !names.includes(chartFocus)) chartFocus = null;
+  const selStyle = "flex:1;min-width:150px;padding:9px 30px 9px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:'DM Sans',sans-serif;outline:none;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"%23a0c4e0\" stroke-width=\"2\"><path d=\"M6 9l6 6 6-6\"/></svg>');background-repeat:no-repeat;background-position:right 10px center;cursor:pointer;";
+  const btnStyle = "font-size:12px;padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;font-family:'DM Sans',sans-serif;";
+  const opts = `<option value="">Fokus: alla</option>` + names.map(n => `<option value="${n}"${n===chartFocus?' selected':''}>Fokus: ${n}</option>`).join('');
+  const chips = names.map(n => {
+    const visible = !chartHidden.has(n);
+    const c = colorOf[n];
+    return `<button onclick="toggleLine('${n.replace(/'/g,"\\'")}')" style="font-size:11px;padding:3px 9px;border-radius:14px;cursor:pointer;font-family:'DM Sans',sans-serif;border:1px solid ${visible?c:'var(--border)'};background:${visible?c+'22':'transparent'};color:${visible?'var(--text)':'var(--muted)'};">${n}</button>`;
+  }).join('');
+  wrap.innerHTML = `
+    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">
+      <select onchange="setChartFocus(this.value)" style="${selStyle}">${opts}</select>
+      <button onclick="showAllLines()" style="${btnStyle}">Visa alla</button>
+      <button onclick="hideAllLines()" style="${btnStyle}">Dölj alla</button>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:5px;">${chips}</div>`;
+}
+function setChartFocus(name) {
+  chartFocus = name || null;
+  if (chartFocus) chartHidden.delete(chartFocus);
+  renderChart();
+}
+function showAllLines() { chartHidden.clear(); renderChart(); }
+function hideAllLines() {
+  const names = [...new Set((snapshots||[]).flatMap(s => Object.keys(s.scores||{})))];
+  chartHidden = new Set(names);
+  chartFocus = null;
+  renderChart();
+}
+function toggleLine(name) {
+  if (chartHidden.has(name)) chartHidden.delete(name); else chartHidden.add(name);
+  renderChart();
+}
+
 function renderChart() {
   const canvas = document.getElementById('historyChart');
   const placeholder = document.getElementById('chartPlaceholder');
   if (historyChart) { historyChart.destroy(); historyChart = null; }
-  if (snapshots.length < 2) { canvas.style.display = 'none'; placeholder.style.display = 'flex'; return; }
+  const isRank = currentView === 'rank';
+  // Placeringsvyn hoppar över startläget (alla på 0 = alla delad etta), poängvyn behåller det
+  const src = isRank
+    ? snapshots.filter(s => Math.max(0, ...Object.values(s.scores).map(Number)) > 0)
+    : snapshots;
+  if (src.length < 2) { canvas.style.display = 'none'; placeholder.style.display = 'flex'; renderChartFocus(); return; }
   canvas.style.display = 'block'; placeholder.style.display = 'none';
-  const labels = snapshots.map(s => s.label);
-  const allNames = [...new Set(snapshots.flatMap(s => Object.keys(s.scores)))];
+  const labels = src.map(s => s.label);
+  const allNames = [...new Set(src.flatMap(s => Object.keys(s.scores)))];
   const datasets = allNames.map((name, i) => {
     const color = PALETTE[i % PALETTE.length];
-    const data = currentView === 'points'
-      ? snapshots.map(s => s.scores[name] ?? null)
-      : snapshots.map(s => { const sorted = Object.keys(s.scores).sort((a,b)=>s.scores[b]-s.scores[a]); const idx = sorted.indexOf(name); if (idx === -1) return null; let rank = 1; for (let j = 1; j <= idx; j++) { if (s.scores[sorted[j]] < s.scores[sorted[j-1]]) rank = j + 1; } return rank; });
-    return { label: name, data, borderColor: color, backgroundColor: color+'22', tension: 0.35, pointRadius: 4, pointHoverRadius: 7, fill: false, borderWidth: 2 };
+    const data = !isRank
+      ? src.map(s => s.scores[name] ?? null)
+      : src.map(s => { const sorted = Object.keys(s.scores).sort((a,b)=>s.scores[b]-s.scores[a]); const idx = sorted.indexOf(name); if (idx === -1) return null; let rank = 1; for (let j = 1; j <= idx; j++) { if (s.scores[sorted[j]] < s.scores[sorted[j-1]]) rank = j + 1; } return rank; });
+    const dimmed = chartFocus && name !== chartFocus;
+    const focused = chartFocus && name === chartFocus;
+    return {
+      label: name, data,
+      borderColor: dimmed ? 'rgba(255,255,255,0.10)' : color,
+      backgroundColor: color+'22',
+      tension: 0.35,
+      pointRadius: dimmed ? 0 : 4,
+      pointHoverRadius: dimmed ? 0 : 7,
+      fill: false,
+      borderWidth: focused ? 3.5 : (dimmed ? 1 : 2),
+      order: focused ? 0 : 1,
+      hidden: chartHidden.has(name)
+    };
   });
   historyChart = new Chart(canvas, {
     type: 'line', data: { labels, datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { display: true, position: 'bottom', labels: { boxWidth: 10, color: 'rgba(255,255,255,0.5)', font: { size: 12, family: 'DM Sans' }, padding: 14 } },
+        legend: { display: false },
         tooltip: { mode: 'index', intersect: false, backgroundColor: 'rgba(0,31,61,0.95)', borderColor: 'rgba(255,230,32,0.35)', borderWidth: 1, titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.75)', bodyFont: { size: 10 }, titleFont: { size: 11 }, padding: 6, boxPadding: 2, bodySpacing: 1 }
       },
       scales: {
@@ -803,6 +1077,7 @@ function renderChart() {
       }
     }
   });
+  renderChartFocus();
 }
 
 
@@ -1812,13 +2087,14 @@ async function init() {
     currentData = Object.entries(latest.scores).map(([name, points]) => ({ name, points })).sort((a,b) => b.points - a.points || a.name.localeCompare(b.name, 'sv'));
     document.getElementById('uploadZone').style.display = 'none';
     document.getElementById('dashboard').style.display = 'block';
-    renderLeaderboard(currentData); renderMetricCards(); renderChart();
+    renderLeaderboard(currentData); renderMetricCards(); renderChart(); renderTournamentStats();
   }
   setInterval(async () => {
+    if (_realSnapshots !== null) return; // exempeldata visas → pausa pollning
     const prev = snapshots.length;
     await loadSnapshots();
     if (snapshots.length !== prev) {
-      renderChart(); renderMetricCards();
+      renderChart(); renderMetricCards(); renderTournamentStats();
       if (snapshots.length > 0) {
         const latest = snapshots[snapshots.length - 1];
         currentData = Object.entries(latest.scores).map(([n,p])=>({name:n,points:p})).sort((a,b)=>b.points-a.points || a.name.localeCompare(b.name, 'sv'));
@@ -1833,7 +2109,7 @@ document.getElementById('fileInput').addEventListener('change', function(e) {
     currentData = players;
     document.getElementById('uploadZone').style.display = 'none';
     document.getElementById('dashboard').style.display = 'block';
-    renderLeaderboard(players); renderMetricCards(); renderChart();
+    renderLeaderboard(players); renderMetricCards(); renderChart(); renderTournamentStats();
     setStatus('Fil inläst! Klicka "Admin" och spara en snapshot för att dela med deltagarna.');
   });
 });
