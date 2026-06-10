@@ -526,7 +526,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v0.91</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v0.90</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -1546,13 +1546,11 @@ function computeWildcard() {
 function renderInsights() {
   const el = document.getElementById('insightsView');
   const subnav = `
-    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:1.25rem;">
-      <div class="view-toggle" style="flex-wrap:nowrap;min-width:max-content;">
-        <button class="toggle-btn ${insightView==='h2h'?'active':''}" onclick="setInsightView('h2h')">Head-to-head</button>
-        <button class="toggle-btn ${insightView==='kuriosa'?'active':''}" onclick="setInsightView('kuriosa')">Gruppspel</button>
-        <button class="toggle-btn ${insightView==='slutspel'?'active':''}" onclick="setInsightView('slutspel')">Slutspel</button>
-        <button class="toggle-btn ${insightView==='bonus'?'active':''}" onclick="setInsightView('bonus')">Bonusfrågor</button>
-      </div>
+    <div class="view-toggle" style="margin-bottom:1.25rem;flex-wrap:wrap;">
+      <button class="toggle-btn ${insightView==='h2h'?'active':''}" onclick="setInsightView('h2h')">Head-to-head</button>
+      <button class="toggle-btn ${insightView==='kuriosa'?'active':''}" onclick="setInsightView('kuriosa')">Gruppspel</button>
+      <button class="toggle-btn ${insightView==='slutspel'?'active':''}" onclick="setInsightView('slutspel')">Slutspel</button>
+      <button class="toggle-btn ${insightView==='bonus'?'active':''}" onclick="setInsightView('bonus')">Bonusfrågor</button>
     </div>`;
 
   let body = '';
