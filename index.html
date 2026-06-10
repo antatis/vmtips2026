@@ -186,6 +186,8 @@
     transition: all 0.15s;
   }
   .toggle-btn.active { border-color: var(--yellow); color: var(--yellow); background: rgba(255,230,32,0.12); }
+  .insight-subnav { gap: 5px; flex-wrap: nowrap; }
+  .insight-subnav .toggle-btn { flex: 1; min-width: 0; padding: 5px 4px; font-size: 11px; text-align: center; }
   .tabbar { gap: 5px; }
   .tabbar .toggle-btn { flex: 1; min-width: 0; padding: 7px 4px; font-size: 12px; }
   @media (max-width: 420px) {
@@ -526,7 +528,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v0.90</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v0.93</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -1546,11 +1548,11 @@ function computeWildcard() {
 function renderInsights() {
   const el = document.getElementById('insightsView');
   const subnav = `
-    <div class="view-toggle" style="margin-bottom:1.25rem;flex-wrap:wrap;">
-      <button class="toggle-btn ${insightView==='h2h'?'active':''}" onclick="setInsightView('h2h')">Head-to-head</button>
+    <div class="view-toggle insight-subnav" style="margin-bottom:1.25rem;">
+      <button class="toggle-btn ${insightView==='h2h'?'active':''}" onclick="setInsightView('h2h')">H2H</button>
       <button class="toggle-btn ${insightView==='kuriosa'?'active':''}" onclick="setInsightView('kuriosa')">Gruppspel</button>
       <button class="toggle-btn ${insightView==='slutspel'?'active':''}" onclick="setInsightView('slutspel')">Slutspel</button>
-      <button class="toggle-btn ${insightView==='bonus'?'active':''}" onclick="setInsightView('bonus')">Bonusfrågor</button>
+      <button class="toggle-btn ${insightView==='bonus'?'active':''}" onclick="setInsightView('bonus')">Bonus</button>
     </div>`;
 
   let body = '';
