@@ -526,7 +526,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v0.88</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v0.90</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -1805,6 +1805,7 @@ function renderSlutspel() {
     ${block('Vem tippar Sverige längst?', longestRow)}`;
 }
 
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function renderBonus() {
   const pls = VMDATA.players;
   const cats = BONUSDATA.categories;
@@ -1829,8 +1830,8 @@ function renderBonus() {
       const lone = who.length === 1;
       return `<div style="display:flex;align-items:baseline;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
           <span style="min-width:24px;font-family:'Bebas Neue',sans-serif;font-size:1rem;color:${lone?'var(--yellow)':'var(--muted)'};">${who.length}</span>
-          <span style="flex:1;font-size:13px;color:var(--text);">${ans}${lone?' <span style="color:var(--yellow);font-size:11px;">★ ensam</span>':''}</span>
-          <span style="flex:1;font-size:11px;color:var(--muted);text-align:right;">${who.join(', ')}</span>
+          <span style="flex:1;font-size:13px;color:var(--text);">${escHtml(ans)}${lone?' <span style="color:var(--yellow);font-size:11px;">★ ensam</span>':''}</span>
+          <span style="flex:1;font-size:11px;color:var(--muted);text-align:right;">${who.map(escHtml).join(', ')}</span>
         </div>`;
     }).join('');
     return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem 1.1rem;margin-bottom:12px;">
