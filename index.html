@@ -505,6 +505,7 @@
         <input type="text" id="snapshotLabel" placeholder="t.ex. 12 jun" />
         <button class="btn sm" onclick="saveSnapshot()">💾 Spara snapshot</button>
         <button class="btn sm danger" onclick="deleteLastSnapshot()">🗑 Ta bort senaste</button>
+        <button class="btn sm danger" id="clearFacitBtn" onclick="clearFacit()" style="display:none;">🧹 Rensa facit</button>
       </div>
       <div class="row">
         <label>
@@ -528,7 +529,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.05</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.07</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -569,6 +570,8 @@ async function loadSnapshots() {
     FACIT = facitRow ? (facitRow.scores || {}) : {};
     _facitRowId = facitRow ? facitRow.id : null;
     snapshots = all.filter(s => s.label !== '__FACIT__');
+    const btn = document.getElementById('clearFacitBtn');
+    if (btn) btn.style.display = _facitRowId ? 'inline-block' : 'none';
     updateFooter();
     return snapshots;
   } catch(e) { setStatus('Kunde inte hämta historik: ' + e.message, true); return []; }
@@ -670,6 +673,17 @@ function matchPoints(tip, res) {
   return p;
 }
 function isFullhit(tip, res) { return !!(tip && res && tip[0] === res[0] && tip[1] === res[1]); }
+async function clearFacit() {
+  if (!_facitRowId) return;
+  if (!confirm('Rensa allt facit? Detta tar bort alla sparade matchresultat.')) return;
+  try {
+    await supabase('DELETE', 'snapshots?id=eq.' + _facitRowId);
+    FACIT = {}; _facitRowId = null;
+    document.getElementById('clearFacitBtn').style.display = 'none';
+    renderMatchday(); renderFacitStats();
+    setStatus('Facit rensat.');
+  } catch(e) { setStatus('Kunde inte rensa facit: ' + e.message, true); }
+}
 async function saveFacit(facit) {
   if (_facitRowId) { try { await supabase('DELETE', 'snapshots?id=eq.' + _facitRowId); } catch(e) {} }
   await supabase('POST', 'snapshots', { label: '__FACIT__', scores: facit });
