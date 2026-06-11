@@ -528,7 +528,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v0.95</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.03</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -1024,8 +1024,8 @@ function loadDemoData() {
   const demo = [{ label: 'Start', created_at: new Date(Date.now()-(days.length+1)*864e5).toISOString(), scores: {...cum} }];
   days.forEach((label, di) => {
     pls.forEach((p, i) => {
-      // pseudo-slumpmässig dagspoäng 0-13 baserad på namn+dag
-      const seed = (i*7 + di*13 + p.length*3) % 14;
+      // varierade dagpoäng 0-15, både jämna och ojämna
+      const seed = (i*3 + di*7 + p.length*5 + i*di) % 16;
       cum[p] += seed;
     });
     demo.push({ label, created_at: new Date(Date.now()-(days.length-di)*864e5).toISOString(), scores: {...cum} });
@@ -1166,10 +1166,19 @@ function renderChart() {
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
-        tooltip: { mode: 'index', intersect: false, backgroundColor: 'rgba(0,31,61,0.95)', borderColor: 'rgba(255,230,32,0.35)', borderWidth: 1, titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.75)', bodyFont: { size: 10 }, titleFont: { size: 11 }, padding: 6, boxPadding: 2, bodySpacing: 1 }
+        tooltip: { mode: 'nearest', intersect: false, backgroundColor: 'rgba(0,31,61,0.95)', borderColor: 'rgba(255,230,32,0.35)', borderWidth: 1, titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.75)', bodyFont: { size: 10 }, titleFont: { size: 11 }, padding: 6, boxPadding: 2, bodySpacing: 1, callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}` } }
       },
       scales: {
-        y: { reverse: currentView==='rank', grid: { color: 'rgba(255,230,32,0.08)' }, ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 12 }, stepSize: 1, callback: function(v) { return Number.isInteger(v) ? v : null; } }, title: { display: true, text: currentView==='rank'?'Placering':'Poäng', color: 'rgba(255,230,32,0.8)', font: { size: 12 } } },
+        y: isRank
+          ? { reverse: true, min: 0.5, max: allNames.length + 0.5,
+              grid: { color: 'rgba(255,230,32,0.08)' },
+              afterBuildTicks: axis => { axis.ticks = Array.from({length: allNames.length}, (_,i) => ({ value: i+1 })); },
+              ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 12 } },
+              title: { display: true, text: 'Placering', color: 'rgba(255,230,32,0.8)', font: { size: 12 } } }
+          : { grid: { color: 'rgba(255,230,32,0.08)' },
+              ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 12 }, stepSize: 1,
+                callback: v => Number.isInteger(v) ? v : null },
+              title: { display: true, text: 'Poäng', color: 'rgba(255,230,32,0.8)', font: { size: 12 } } },
         x: { grid: { color: 'rgba(255,230,32,0.08)' }, ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 11 }, autoSkip: false, maxRotation: 35 } }
       }
     }
