@@ -529,7 +529,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.07</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.15</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -620,6 +620,7 @@ async function toggleAdmin() {
     adminMode = false;
     document.getElementById('adminPanel').style.display = 'none';
     if (tag) tag.style.color = '';
+    if (currentTab === 'matchday') renderMatchday();
     if (currentTab === 'guestbook') renderGuestbook();
   } else {
     const pw = prompt('Lösenord:');
@@ -628,6 +629,7 @@ async function toggleAdmin() {
       adminMode = true;
       document.getElementById('adminPanel').style.display = 'block';
       if (tag) tag.style.color = 'var(--yellow)';
+      if (currentTab === 'matchday') renderMatchday();
       if (currentTab === 'guestbook') renderGuestbook();
     } else if (pw !== null) { alert('Fel lösenord.'); }
   }
@@ -673,6 +675,20 @@ function matchPoints(tip, res) {
   return p;
 }
 function isFullhit(tip, res) { return !!(tip && res && tip[0] === res[0] && tip[1] === res[1]); }
+async function saveMatchResult(matchNum, date) {
+  const h = parseInt(document.getElementById('h_' + matchNum)?.value);
+  const a = parseInt(document.getElementById('a_' + matchNum)?.value);
+  if (isNaN(h) || isNaN(a) || h < 0 || a < 0) { setStatus('Ange giltiga måltal.', true); return; }
+  FACIT[matchNum] = [h, a];
+  try {
+    loading(true, 'Sparar resultat...');
+    await saveFacit(FACIT);
+    await loadSnapshots();
+    loading(false);
+    renderMatchday();
+    await autoSnapshotIfComplete(date);
+  } catch(e) { loading(false); setStatus('Kunde inte spara: ' + e.message, true); }
+}
 async function clearFacit() {
   if (!_facitRowId) return;
   if (!confirm('Rensa allt facit? Detta tar bort alla sparade matchresultat.')) return;
@@ -855,15 +871,23 @@ function renderLeaderboard(players) {
   }
 
   // Normal standings
-  // Rörelse + dagens poängskörd sedan förra speldagen (om historik finns)
-  let prevRanks = null, dayGain = null;
+  // Rörelse + poängskörd — bara när senaste snapshot finns (inte live under inmatning)
+  let prevRanks = null, dayGain = null, diffLabel = null;
   const histSnaps = (snapshots||[]).filter(s => s && s.scores);
   if (histSnaps.length >= 2) {
-    const mx = Math.max(0, ...Object.values(histSnaps[histSnaps.length-1].scores).map(Number));
+    const lastSnap = histSnaps[histSnaps.length-1];
+    const prevSnap = histSnaps[histSnaps.length-2];
+    const mx = Math.max(0, ...Object.values(lastSnap.scores).map(Number));
     if (mx > 0) {
-      prevRanks = snapRankMap(histSnaps[histSnaps.length-2].scores);
-      const prevS = histSnaps[histSnaps.length-2].scores, curS = histSnaps[histSnaps.length-1].scores;
-      dayGain = {}; Object.keys(curS).forEach(n => dayGain[n] = (Number(curS[n])||0) - (Number(prevS[n])||0));
+      // Visa diff om live-poäng stämmer överens med senaste snapshot för alla spelare
+      const snapScores = lastSnap.scores;
+      const liveMatchesSnap = players.every(p => (p.points || 0) === (Number(snapScores[p.name]) || 0));
+      if (liveMatchesSnap) {
+        prevRanks = snapRankMap(prevSnap.scores);
+        const prevS = prevSnap.scores, curS = lastSnap.scores;
+        dayGain = {}; Object.keys(curS).forEach(n => dayGain[n] = (Number(curS[n])||0) - (Number(prevS[n])||0));
+        diffLabel = lastSnap.label;
+      }
     }
   }
   let rank = 1;
@@ -1054,14 +1078,62 @@ function clearDemoData() {
   if (_realSnapshots === null) { setStatus('Ingen exempeldata aktiv.'); return; }
   snapshots = _realSnapshots; _realSnapshots = null;
   FACIT = _realFacit || {}; _realFacit = null;
-  currentData = snapshots.length ? Object.entries(snapshots[snapshots.length-1].scores).map(([n,p])=>({name:n,points:p}))
-    .sort((a,b)=> b.points-a.points || a.name.localeCompare(b.name,'sv')) : [];
+  currentData = liveCurrentData();
   renderLeaderboard(currentData); renderChart(); renderMetricCards(); renderTournamentStats(); renderFacitStats();
   setStatus('Exempeldata rensad – riktig data återställd.');
 }
 // ── End Exempeldata ─────────────────────────────────────────────
 
-// ── Facit-statistik: Flest fullträffar (exakta resultat) ────────
+function liveCurrentData() {
+  // Om FACIT finns — räkna live från tips. Annars senaste snapshot.
+  if (Object.keys(FACIT).length > 0) {
+    const totals = calcLivePoints();
+    return VMDATA.players.map(name => ({ name, points: totals[name] || 0 }))
+      .sort((a,b) => b.points - a.points || a.name.localeCompare(b.name, 'sv'));
+  }
+  if (snapshots.length) {
+    return Object.entries(snapshots[snapshots.length-1].scores)
+      .map(([name, points]) => ({ name, points: Number(points)||0 }))
+      .sort((a,b) => b.points - a.points || a.name.localeCompare(b.name, 'sv'));
+  }
+  return null;
+}
+function calcLivePoints() {
+  // Räknar totalpoäng per spelare från alla spelade gruppspelsmatcher i FACIT
+  const totals = {};
+  VMDATA.players.forEach(p => {
+    let pts = 0;
+    Object.entries(FACIT).forEach(([n, res]) => {
+      const tip = (VMDATA.tips[p] || {})[n];
+      if (tip) pts += matchPoints(tip, res);
+    });
+    totals[p] = pts;
+  });
+  return totals;
+}
+
+async function autoSnapshotIfComplete(date) {
+  // Kolla om alla matcher på speldagen har facit
+  const dayMatches = matchdaySchedule().filter(m => m.d === date && m.n <= GROUP_LAST_MATCH);
+  if (!dayMatches.length) return;
+  const allDone = dayMatches.every(m => Array.isArray(FACIT[m.n]));
+  if (!allDone) return;
+
+  // Kolla om snapshot redan finns för denna dag
+  const label = shortDate(date);
+  const exists = snapshots.some(s => s.label === label);
+  if (exists) return;
+
+  // Räkna poäng och spara snapshot
+  const scores = calcLivePoints();
+  try {
+    await supabase('POST', 'snapshots', { label, scores });
+    await loadSnapshots();
+    renderChart(); renderMetricCards(); renderLeaderboard(currentData);
+    setStatus('📸 Snapshot sparad automatiskt: ' + label);
+  } catch(e) { setStatus('Auto-snapshot misslyckades: ' + e.message, true); }
+}
+// ── End Live-poäng ──────────────────────────────────────────────
 function renderFacitStats() {
   const el = document.getElementById('facitStats');
   if (!el) return;
@@ -2045,6 +2117,11 @@ function fmtMatchDate(dstr) {
   const months = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
   return days[d.getDay()] + ' ' + d.getDate() + ' ' + months[d.getMonth()];
 }
+function shortDate(dstr) {
+  const d = new Date(dstr + 'T12:00:00');
+  const months = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+  return d.getDate() + ' ' + months[d.getMonth()];
+}
 
 function outcomeLabel(x) {
   if (x === 1 || x === '1') return '1';
@@ -2151,8 +2228,14 @@ function renderMatchday() {
 
       return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem 1.1rem;margin-bottom:12px;">
         ${header}
-        ${extra}
+        ${played ? extra : matchInsight(m)}
         <div style="display:flex;flex-wrap:wrap;gap:6px;">${chips}</div>
+        ${adminMode ? `<div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+          <input id="h_${m.n}" type="number" min="0" max="20" ${played?`value="${res[0]}"`:'placeholder="H"'} style="width:52px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;text-align:center;font-family:'DM Sans',sans-serif;">
+          <span style="color:var(--muted);">–</span>
+          <input id="a_${m.n}" type="number" min="0" max="20" ${played?`value="${res[1]}"`:'placeholder="B"'} style="width:52px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;text-align:center;font-family:'DM Sans',sans-serif;">
+          <button onclick="saveMatchResult(${m.n},'${active}')" style="padding:6px 14px;border-radius:6px;font-size:12px;border:1px solid ${played?'rgba(255,255,255,0.3)':'var(--yellow)'};background:${played?'rgba(255,255,255,0.06)':'rgba(255,218,0,0.12)'};color:${played?'var(--muted)':'var(--yellow)'};cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;">${played?'Ändra':'Spara'}</button>
+        </div>` : ''}
       </div>`;
     }).join('');
     if (!matches.length) body = '<p style="padding:1.5rem;text-align:center;color:var(--muted);font-size:14px;">Inga matcher denna dag</p>';
@@ -2260,9 +2343,8 @@ async function init() {
   document.getElementById('fetchBar').style.display = 'block';
   await Promise.all([loadSnapshots(), loadGuestbook()]);
   document.getElementById('fetchBar').style.display = 'none';
-  if (snapshots.length > 0) {
-    const latest = snapshots[snapshots.length - 1];
-    currentData = Object.entries(latest.scores).map(([name, points]) => ({ name, points })).sort((a,b) => b.points - a.points || a.name.localeCompare(b.name, 'sv'));
+  if (snapshots.length > 0 || Object.keys(FACIT).length > 0) {
+    currentData = liveCurrentData();
     document.getElementById('uploadZone').style.display = 'none';
     document.getElementById('dashboard').style.display = 'block';
     renderLeaderboard(currentData); renderMetricCards(); renderChart(); renderTournamentStats(); renderFacitStats();
@@ -2270,14 +2352,12 @@ async function init() {
   setInterval(async () => {
     if (_realSnapshots !== null) return; // exempeldata visas → pausa pollning
     const prev = snapshots.length;
+    const prevFacitKeys = Object.keys(FACIT).length;
     await loadSnapshots();
-    if (snapshots.length !== prev) {
+    if (snapshots.length !== prev || Object.keys(FACIT).length !== prevFacitKeys) {
+      currentData = liveCurrentData();
+      renderLeaderboard(currentData);
       renderChart(); renderMetricCards(); renderTournamentStats(); renderFacitStats();
-      if (snapshots.length > 0) {
-        const latest = snapshots[snapshots.length - 1];
-        currentData = Object.entries(latest.scores).map(([n,p])=>({name:n,points:p})).sort((a,b)=>b.points-a.points || a.name.localeCompare(b.name, 'sv'));
-        renderLeaderboard(currentData);
-      }
     }
   }, 30000);
 }
