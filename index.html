@@ -529,7 +529,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.15</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.16</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -1262,9 +1262,9 @@ function renderChart() {
               ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 12 } },
               title: { display: true, text: 'Placering', color: 'rgba(255,230,32,0.8)', font: { size: 12 } } }
           : { grid: { color: 'rgba(255,230,32,0.08)' },
-              suggestedMax: (() => { const maxVal = Math.max(...datasets.flatMap(d => d.data.filter(v => typeof v === 'number' && isFinite(v)))); const step = maxVal > 150 ? 20 : maxVal > 75 ? 10 : 5; return Math.ceil((maxVal + step) / step) * step; })(),
+              suggestedMax: (() => { const maxVal = Math.max(...datasets.flatMap(d => d.data.filter(v => typeof v === 'number' && isFinite(v)))); const step = maxVal > 150 ? 20 : maxVal > 75 ? 10 : maxVal > 30 ? 5 : 2; return Math.ceil((maxVal + 2) / step) * step; })(),
               ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 12 },
-                stepSize: (() => { const maxVal = Math.max(...datasets.flatMap(d => d.data.filter(v => typeof v === 'number' && isFinite(v)))); return maxVal > 150 ? 20 : maxVal > 75 ? 10 : 5; })() },
+                stepSize: (() => { const maxVal = Math.max(...datasets.flatMap(d => d.data.filter(v => typeof v === 'number' && isFinite(v)))); return maxVal > 150 ? 20 : maxVal > 75 ? 10 : maxVal > 30 ? 5 : 2; })() },
               title: { display: true, text: 'Poäng', color: 'rgba(255,230,32,0.8)', font: { size: 12 } } },
         x: { grid: { color: 'rgba(255,230,32,0.08)' }, ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 11 }, autoSkip: false, maxRotation: 35 } }
       }
