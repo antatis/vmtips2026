@@ -529,7 +529,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.19</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.32</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -541,6 +541,8 @@ const SKIP_SHEETS = ['Poäng & instruktioner','Mitt slutspelsträd','Resultat & 
 
 let currentData = null, historyChart = null, currentView = 'points', adminMode = false, snapshots = [], chartFocus = null, chartHidden = new Set();
 let FACIT = {}, _facitRowId = null, _realFacit = null;
+let ADVANCERS = { r32: {}, winners: {} }, _advRowId = null, _realAdv = null;
+let BONUSFACIT = {}, _bonusRowId = null, _realBonus = null;
 
 function loading(show, msg='Sparar...') {
   document.getElementById('loadingOverlay').style.display = show ? 'flex' : 'none';
@@ -569,7 +571,13 @@ async function loadSnapshots() {
     const facitRow = all.find(s => s.label === '__FACIT__');
     FACIT = facitRow ? (facitRow.scores || {}) : {};
     _facitRowId = facitRow ? facitRow.id : null;
-    snapshots = all.filter(s => s.label !== '__FACIT__');
+    const advRow = all.find(s => s.label === '__ADVANCERS__');
+    ADVANCERS = advRow ? Object.assign({ r32:{}, winners:{} }, advRow.scores || {}) : { r32:{}, winners:{} };
+    _advRowId = advRow ? advRow.id : null;
+    const bonusRow = all.find(s => s.label === '__BONUSFACIT__');
+    BONUSFACIT = bonusRow ? (bonusRow.scores || {}) : {};
+    _bonusRowId = bonusRow ? bonusRow.id : null;
+    snapshots = all.filter(s => s.label && !s.label.startsWith('__'));
     const btn = document.getElementById('clearFacitBtn');
     if (btn) btn.style.display = _facitRowId ? 'inline-block' : 'none';
     updateFooter();
@@ -1046,7 +1054,7 @@ function renderTournamentStats() {
 // ── Exempeldata (endast lokalt, sparas ej) ──────────────────────
 let _realSnapshots = null;
 function loadDemoData() {
-  if (_realSnapshots === null) { _realSnapshots = snapshots; _realFacit = FACIT; }
+  if (_realSnapshots === null) { _realSnapshots = snapshots; _realFacit = FACIT; _realAdv = ADVANCERS; _realBonus = BONUSFACIT; }
   const pls = VMDATA.players;
   // exempelfacit: låt facit för de första matcherna matcha en roterande spelares tips (garanterar fullträffar)
   const demoFacit = {};
@@ -1056,6 +1064,24 @@ function loadDemoData() {
     demoFacit[n] = t ? [t[0], t[1]] : [1, 1];
   }
   FACIT = demoFacit;
+  // exempel-avancemang: använd Antons slutspelstips som "utfall" så poängen syns
+  const demoKo = KODATA.ko['Anton'];
+  const demoAdv = { r32: {}, winners: {} };
+  for (let i = 0; i < 16; i++) demoAdv.r32[73 + i] = [demoKo.r32[i*2], demoKo.r32[i*2+1]];
+  const findIn = (team, nums) => {
+    for (const m of nums) { const t = demoAdv.r32[m]; if (t && (t[0]===team || t[1]===team)) return m; }
+    return null;
+  };
+  demoKo.r16.forEach(team => { const m = findIn(team, R32_MATCHES); if (m) demoAdv.winners[m] = team; });
+  ADVANCERS = demoAdv;
+  // åttondel→final: sätt vinnare enligt Antons tips via kedjan
+  const setWin = (team, nums) => { for (const m of nums) { const t = koMatchTeams(m); if (t && (t[0]===team || t[1]===team)) { ADVANCERS.winners[m] = team; return; } } };
+  demoKo.qf.forEach(t => setWin(t, [89,90,91,92,93,94,95,96]));
+  demoKo.sf.forEach(t => setWin(t, [97,98,99,100]));
+  demoKo.final.forEach(t => setWin(t, [101,102]));
+  // exempel-bonusfacit = Antons bonussvar (så några får poäng)
+  BONUSFACIT = {};
+  BONUSDATA.categories.forEach(cat => { const a = BONUSDATA.bonus['Anton'][cat]; if (a) BONUSFACIT[cat] = a; });
   // deterministisk men varierad poängprogression över 6 speldagar
   const days = ['11 jun', '12 jun', '13 jun', '14 jun', '15 jun', '16 jun'];
   let cum = {}; pls.forEach(p => cum[p] = 0);
@@ -1069,7 +1095,7 @@ function loadDemoData() {
     demo.push({ label, created_at: new Date(Date.now()-(days.length-di)*864e5).toISOString(), scores: {...cum} });
   });
   snapshots = demo;
-  currentData = Object.entries(demo[demo.length-1].scores).map(([n,p])=>({name:n,points:p}))
+  currentData = liveCurrentData() || Object.entries(demo[demo.length-1].scores).map(([n,p])=>({name:n,points:p}))
     .sort((a,b)=> b.points-a.points || a.name.localeCompare(b.name,'sv'));
   renderLeaderboard(currentData); renderChart(); renderMetricCards(); renderTournamentStats(); renderFacitStats();
   setStatus('Exempeldata visas (lokalt – inte sparat).');
@@ -1078,6 +1104,8 @@ function clearDemoData() {
   if (_realSnapshots === null) { setStatus('Ingen exempeldata aktiv.'); return; }
   snapshots = _realSnapshots; _realSnapshots = null;
   FACIT = _realFacit || {}; _realFacit = null;
+  ADVANCERS = _realAdv || { r32:{}, winners:{} }; _realAdv = null;
+  BONUSFACIT = _realBonus || {}; _realBonus = null;
   currentData = liveCurrentData();
   renderLeaderboard(currentData); renderChart(); renderMetricCards(); renderTournamentStats(); renderFacitStats();
   setStatus('Exempeldata rensad – riktig data återställd.');
@@ -1086,7 +1114,7 @@ function clearDemoData() {
 
 function liveCurrentData() {
   // Om FACIT finns — räkna live från tips. Annars senaste snapshot.
-  if (Object.keys(FACIT).length > 0) {
+  if (Object.keys(FACIT).length > 0 || hasAdvData() || hasBonusFacit()) {
     const totals = calcLivePoints();
     return VMDATA.players.map(name => ({ name, points: totals[name] || 0 }))
       .sort((a,b) => b.points - a.points || a.name.localeCompare(b.name, 'sv'));
@@ -1107,16 +1135,132 @@ function calcLivePoints() {
       const tip = (VMDATA.tips[p] || {})[n];
       if (tip) pts += matchPoints(tip, res);
     });
+    pts += advancementPoints(p);
+    pts += bonusPoints(p);
     totals[p] = pts;
   });
   return totals;
 }
 
+// ── Slutspel: avancemang ────────────────────────────────────────
+// Bracket-struktur (verifierad från Excel). win = vinnare av match, lose = förlorare.
+const R32_MATCHES = [73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88];
+const KOBRACKET = {
+  89:[{win:74},{win:77}], 90:[{win:73},{win:75}], 91:[{win:76},{win:78}], 92:[{win:79},{win:80}],
+  93:[{win:83},{win:84}], 94:[{win:81},{win:82}], 95:[{win:86},{win:88}], 96:[{win:85},{win:87}],
+  97:[{win:89},{win:90}], 98:[{win:93},{win:94}], 99:[{win:91},{win:92}], 100:[{win:95},{win:96}],
+  101:[{win:97},{win:98}], 102:[{win:99},{win:100}],
+  103:[{lose:101},{lose:102}], 104:[{win:101},{win:102}]
+};
+const ADV_POINTS = { r32:1, r16:2, qf:4, sf:6, bronze:8, final:10 };
+
+// Returnerar [lagA, lagB] för en slutspelsmatch (kan innehålla null om ej bestämt än)
+function koMatchTeams(m) {
+  if (R32_MATCHES.includes(m)) return ADVANCERS.r32[m] || [null, null];
+  const src = KOBRACKET[m];
+  if (!src) return [null, null];
+  const W = ADVANCERS.winners || {};
+  const resolve = s => {
+    if (s.win != null) return W[s.win] || null;
+    if (s.lose != null) {
+      const teams = koMatchTeams(s.lose), w = W[s.lose];
+      if (!teams || !w || !teams[0] || !teams[1]) return null;
+      return teams[0] === w ? teams[1] : teams[0];
+    }
+    return null;
+  };
+  return [resolve(src[0]), resolve(src[1])];
+}
+
+// Härledda uppsättningar av lag som nått varje runda (faktiskt utfall)
+function advancedSets() {
+  const W = ADVANCERS.winners || {};
+  const setFrom = nums => { const s = new Set(); nums.forEach(n => { if (W[n]) s.add(W[n]); }); return s; };
+  const r32 = new Set();
+  R32_MATCHES.forEach(m => { const t = ADVANCERS.r32[m]; if (t) { if (t[0]) r32.add(t[0]); if (t[1]) r32.add(t[1]); } });
+  const r16 = setFrom([73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88]);
+  const qf  = setFrom([89,90,91,92,93,94,95,96]);
+  const sf  = setFrom([97,98,99,100]);
+  const final = setFrom([101,102]);
+  const bronze = new Set();
+  [101,102].forEach(m => { const teams = koMatchTeams(m), w = W[m]; if (teams && w && teams[0] && teams[1]) bronze.add(teams[0]===w ? teams[1] : teams[0]); });
+  return { r32, r16, qf, sf, bronze, final };
+}
+
+// Avancemangspoäng för en spelare (1/2/4/6/8/10 per rätt lag i resp. runda)
+function advancementPoints(player) {
+  const ko = KODATA.ko[player];
+  if (!ko) return 0;
+  const sets = advancedSets();
+  let pts = 0;
+  (ko.r32||[]).forEach(t => { if (sets.r32.has(t)) pts += ADV_POINTS.r32; });
+  (ko.r16||[]).forEach(t => { if (sets.r16.has(t)) pts += ADV_POINTS.r16; });
+  (ko.qf ||[]).forEach(t => { if (sets.qf.has(t))  pts += ADV_POINTS.qf;  });
+  (ko.sf ||[]).forEach(t => { if (sets.sf.has(t))  pts += ADV_POINTS.sf;  });
+  (ko.final||[]).forEach(t => { if (sets.final.has(t)) pts += ADV_POINTS.final; });
+  // Bronsmatch-prediktion = semifinallag som inte tippats till final
+  const bronzePred = (ko.sf||[]).filter(t => !(ko.final||[]).includes(t));
+  bronzePred.forEach(t => { if (sets.bronze.has(t)) pts += ADV_POINTS.bronze; });
+  return pts;
+}
+
+async function saveAdvancers() {
+  if (_advRowId) { try { await supabase('DELETE', 'snapshots?id=eq.' + _advRowId); } catch(e) {} }
+  await supabase('POST', 'snapshots', { label: '__ADVANCERS__', scores: ADVANCERS });
+}
+// ── End Slutspel: avancemang ────────────────────────────────────
+
+// ── Bonusfrågor ─────────────────────────────────────────────────
+// Poäng per fråga, samma ordning som BONUSDATA.categories
+const BONUS_POINTS = [20, 15, 20, 15, 10, 10, 10, 10];
+function normBonus(v) { return String(v == null ? '' : v).trim().toLowerCase(); }
+// Bonuspoäng för en spelare: varje avgjord fråga (facit satt) ger sina poäng vid rätt svar
+function bonusMatch(ci, ans, facit) {
+  if (ci === 7) { // Sveriges mål — jämför som tal
+    const a = parseFloat(String(ans).replace(',', '.')), f = parseFloat(String(facit).replace(',', '.'));
+    if (!isNaN(a) && !isNaN(f)) return a === f;
+  }
+  return normBonus(ans) === normBonus(facit);
+}
+function bonusPoints(player) {
+  let pts = 0;
+  BONUSDATA.categories.forEach((cat, ci) => {
+    const facit = BONUSFACIT[cat];
+    if (facit == null || facit === '') return;
+    const ans = (BONUSDATA.bonus[player] || {})[cat];
+    if (ans != null && bonusMatch(ci, ans, facit)) pts += BONUS_POINTS[ci];
+  });
+  return pts;
+}
+function hasBonusFacit() { return Object.values(BONUSFACIT || {}).some(v => v != null && v !== ''); }
+async function saveBonusFacit() {
+  if (_bonusRowId) { try { await supabase('DELETE', 'snapshots?id=eq.' + _bonusRowId); } catch(e) {} }
+  await supabase('POST', 'snapshots', { label: '__BONUSFACIT__', scores: BONUSFACIT });
+}
+async function setBonusFacit(ci, value) {
+  const cat = BONUSDATA.categories[ci];
+  if (value == null || value === '') delete BONUSFACIT[cat];
+  else BONUSFACIT[cat] = value;
+  loading(true, 'Sparar bonusfacit...');
+  try { await saveBonusFacit(); await loadSnapshots(); } catch(e) { setStatus('Kunde inte spara: ' + e.message, true); }
+  loading(false);
+  currentData = liveCurrentData();
+  renderLeaderboard(currentData); renderChart(); renderMetricCards();
+  renderInsights();
+}
+// ── End Bonusfrågor ─────────────────────────────────────────────
+
+
 async function autoSnapshotIfComplete(date) {
-  // Kolla om alla matcher på speldagen har facit
-  const dayMatches = matchdaySchedule().filter(m => m.d === date && m.n <= GROUP_LAST_MATCH);
+  // Kolla om alla matcher på speldagen är klara
+  // Gruppspel: kräver resultat. Slutspel: kräver resultat OCH vald vinnare.
+  const dayMatches = matchdaySchedule().filter(m => m.d === date);
   if (!dayMatches.length) return;
-  const allDone = dayMatches.every(m => Array.isArray(FACIT[m.n]));
+  const allDone = dayMatches.every(m => {
+    const hasResult = Array.isArray(FACIT[m.n]);
+    if (m.n > GROUP_LAST_MATCH) return hasResult && ADVANCERS.winners[m.n];
+    return hasResult;
+  });
   if (!allDone) return;
 
   // Kolla om snapshot redan finns för denna dag
@@ -1171,9 +1315,10 @@ function renderChartFocus() {
   const wrap = document.getElementById('chartFocusWrap');
   if (!wrap) return;
   const isRank = currentView === 'rank';
+  const valid = (snapshots||[]).filter(s => s && s.scores && (!s.label || !s.label.startsWith('__')) && Object.values(s.scores).every(v => typeof v === 'number'));
   const src = isRank
-    ? (snapshots||[]).filter(s => s && s.scores && Math.max(0, ...Object.values(s.scores).map(Number)) > 0)
-    : (snapshots||[]);
+    ? valid.filter(s => Math.max(0, ...Object.values(s.scores).map(Number)) > 0)
+    : valid;
   if (src.length < 2) { wrap.style.display = 'none'; return; }
   wrap.style.display = '';
   const allNames = [...new Set(src.flatMap(s => Object.keys(s.scores)))];
@@ -1219,9 +1364,10 @@ function renderChart() {
   if (historyChart) { historyChart.destroy(); historyChart = null; }
   const isRank = currentView === 'rank';
   // Placeringsvyn hoppar över startläget (alla på 0 = alla delad etta), poängvyn behåller det
+  const valid = (snapshots||[]).filter(s => s && s.scores && (!s.label || !s.label.startsWith('__')) && Object.values(s.scores).every(v => typeof v === 'number'));
   const src = isRank
-    ? snapshots.filter(s => Math.max(0, ...Object.values(s.scores).map(Number)) > 0)
-    : snapshots;
+    ? valid.filter(s => Math.max(0, ...Object.values(s.scores).map(Number)) > 0)
+    : valid;
   if (src.length < 2) { canvas.style.display = 'none'; placeholder.style.display = 'flex'; renderChartFocus(); return; }
   canvas.style.display = 'block'; placeholder.style.display = 'none';
   const labels = src.map(s => s.label);
@@ -1760,6 +1906,162 @@ function setH2H(which, val) {
   renderInsights();
 }
 
+function allTeams() {
+  const s = new Set();
+  VMDATA.schedule.filter(m => m.n <= GROUP_LAST_MATCH).forEach(m => { s.add(m.h); s.add(m.a); });
+  return [...s].sort((a,b) => a.localeCompare(b,'sv'));
+}
+function hasAdvData() { return Object.keys(ADVANCERS.r32||{}).length > 0 || Object.keys(ADVANCERS.winners||{}).length > 0; }
+
+function validateWinners() {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    Object.keys(ADVANCERS.winners || {}).forEach(k => {
+      const m = Number(k), teams = koMatchTeams(m), w = ADVANCERS.winners[k];
+      if (!teams || !teams.includes(w)) { delete ADVANCERS.winners[k]; changed = true; }
+    });
+  }
+}
+async function persistAdv() {
+  validateWinners();
+  loading(true, 'Sparar slutspel...');
+  try { await saveAdvancers(); await loadSnapshots(); } catch(e) { setStatus('Kunde inte spara: ' + e.message, true); }
+  loading(false);
+  currentData = liveCurrentData();
+  renderLeaderboard(currentData); renderChart(); renderMetricCards();
+  renderInsights();
+}
+async function saveR32Match(m) {
+  const a = document.getElementById('r32a_'+m).value, b = document.getElementById('r32b_'+m).value;
+  if (!a || !b) { setStatus('Välj båda lagen.', true); return; }
+  if (a === b) { setStatus('Lagen måste vara olika.', true); return; }
+  ADVANCERS.r32[m] = [a, b];
+  await persistAdv();
+}
+async function setKoWinner(m, team) {
+  if (ADVANCERS.winners[m] === team) delete ADVANCERS.winners[m]; // tryck igen = ångra
+  else ADVANCERS.winners[m] = team;
+  await persistAdv();
+  const sched = VMDATA.schedule.find(s => s.n === m);
+  if (sched) await autoSnapshotIfComplete(sched.d);
+}
+
+const KO_ROUNDS = [
+  { key:'r32', label:'Sextondelsfinal', matches:R32_MATCHES, pts:1 },
+  { key:'r16', label:'Åttondelsfinal', matches:[89,90,91,92,93,94,95,96], pts:2 },
+  { key:'qf',  label:'Kvartsfinal', matches:[97,98,99,100], pts:4 },
+  { key:'sf',  label:'Semifinal', matches:[101,102], pts:6 },
+  { key:'bronze', label:'Bronsmatch', matches:[103], pts:8 },
+  { key:'final', label:'Final', matches:[104], pts:10 },
+];
+
+// Admin: mata in sextondelsmatcher + vem som gick vidare
+function renderAdvancementAdmin() {
+  if (!adminMode) return '';
+  const teams = allTeams();
+  const opt = sel => teams.map(t => `<option value="${escHtml(t)}"${t===sel?' selected':''}>${escHtml(t)}</option>`).join('');
+
+  // Sextondelsmatcher (sätt lagen)
+  const r32rows = R32_MATCHES.map(m => {
+    const t = ADVANCERS.r32[m] || [null,null];
+    const w = ADVANCERS.winners[m];
+    const winBtns = (t[0] && t[1]) ? `<div style="display:flex;gap:6px;margin-top:6px;">
+        ${[t[0],t[1]].map(team => `<button onclick="setKoWinner(${m},'${escHtml(team).replace(/'/g,"\\'")}')" style="flex:1;padding:6px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid ${w===team?'#63e6be':'var(--border)'};background:${w===team?'rgba(99,230,190,0.16)':'rgba(255,255,255,0.04)'};color:${w===team?'#63e6be':'var(--muted)'};">${w===team?'✓ ':''}${escHtml(team)}</button>`).join('')}
+      </div>` : '<div style="font-size:11px;color:var(--muted);margin-top:4px;">Välj båda lagen först</div>';
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Match ${m}</div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <select id="r32a_${m}" style="flex:1;min-width:0;padding:6px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;"><option value="">– hemma –</option>${opt(t[0])}</select>
+        <select id="r32b_${m}" style="flex:1;min-width:0;padding:6px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;"><option value="">– borta –</option>${opt(t[1])}</select>
+        <button onclick="saveR32Match(${m})" style="padding:6px 10px;border-radius:6px;font-size:12px;border:1px solid var(--yellow);background:rgba(255,218,0,0.12);color:var(--yellow);cursor:pointer;">Sätt</button>
+      </div>
+      ${winBtns}
+    </div>`;
+  }).join('');
+
+  // Senare rundor (lag kommer från kedjan)
+  const laterRows = KO_ROUNDS.filter(r => r.key !== 'r32').map(r => {
+    const rows = r.matches.map(m => {
+      const t = koMatchTeams(m), w = ADVANCERS.winners[m];
+      if (!t[0] || !t[1]) return `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);">Match ${m}: väntar på tidigare resultat</div>`;
+      return `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Match ${m}${r.key==='bronze'?' (brons)':''}</div>
+        <div style="display:flex;gap:6px;">
+          ${[t[0],t[1]].map(team => `<button onclick="setKoWinner(${m},'${escHtml(team).replace(/'/g,"\\'")}')" style="flex:1;padding:6px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid ${w===team?'#63e6be':'var(--border)'};background:${w===team?'rgba(99,230,190,0.16)':'rgba(255,255,255,0.04)'};color:${w===team?'#63e6be':'var(--text)'};">${w===team?'✓ ':''}${escHtml(team)}</button>`).join('')}
+        </div>
+      </div>`;
+    }).join('');
+    return `<div style="font-size:13px;color:var(--yellow);font-weight:500;margin:14px 0 4px;">${r.label} <span style="color:var(--muted);font-weight:400;font-size:11px;">(${r.pts}p/lag)</span></div>${rows}`;
+  }).join('');
+
+  return `<div style="background:var(--surface);border:1px solid var(--yellow);border-radius:12px;padding:1rem 1.1rem;margin-bottom:16px;">
+    <div style="font-size:14px;color:var(--yellow);font-weight:600;margin-bottom:4px;">⚙ Slutspel – admin</div>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:10px;">Sätt lagen i sextondelarna, klicka sedan vem som gick vidare i varje match (tryck igen för att ångra). Senare rundor fylls automatiskt.</p>
+    <div style="font-size:13px;color:var(--yellow);font-weight:500;margin-bottom:4px;">Sextondelsfinal <span style="color:var(--muted);font-weight:400;font-size:11px;">(1p/lag)</span></div>
+    ${r32rows}
+    ${laterRows}
+  </div>`;
+}
+
+// Resultat: avancemangspoäng + rätt lag per spelare
+function renderAdvancementResults() {
+  if (!hasAdvData()) return '';
+  const sets = advancedSets();
+  const rows = VMDATA.players.map(p => {
+    const ko = KODATA.ko[p] || {};
+    const c = { r32:0,r16:0,qf:0,sf:0,bronze:0,final:0 };
+    (ko.r32||[]).forEach(t => { if (sets.r32.has(t)) c.r32++; });
+    (ko.r16||[]).forEach(t => { if (sets.r16.has(t)) c.r16++; });
+    (ko.qf ||[]).forEach(t => { if (sets.qf.has(t))  c.qf++; });
+    (ko.sf ||[]).forEach(t => { if (sets.sf.has(t))  c.sf++; });
+    (ko.final||[]).forEach(t => { if (sets.final.has(t)) c.final++; });
+    const bp = (ko.sf||[]).filter(t => !(ko.final||[]).includes(t));
+    bp.forEach(t => { if (sets.bronze.has(t)) c.bronze++; });
+    const correct = c.r32+c.r16+c.qf+c.sf+c.bronze+c.final;
+    return { name:p, pts: advancementPoints(p), correct, c };
+  }).sort((a,b) => b.pts - a.pts || b.correct - a.correct || a.name.localeCompare(b.name,'sv'));
+
+  // visa bara rundkolumner som faktiskt börjat (har facit)
+  const active = [
+    { key:'r32', label:'16-del', pts:1 },
+    { key:'r16', label:'8-del', pts:2 },
+    { key:'qf', label:'Kvart', pts:4 },
+    { key:'sf', label:'Semi', pts:6 },
+    { key:'bronze', label:'Brons', pts:8 },
+    { key:'final', label:'Final', pts:10 },
+  ].filter(r => sets[r.key] && sets[r.key].size > 0);
+
+  const r = rows.map((x, i) => {
+    const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1);
+    const breakdown = active.map(r => {
+      const n = x.c[r.key];
+      const p = n * r.pts;
+      return `<span style="display:inline-flex;flex-direction:column;align-items:center;min-width:46px;padding:3px 2px;border-radius:6px;background:${n>0?'rgba(255,218,0,0.08)':'transparent'};">
+        <span style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.03em;">${r.label}</span>
+        <span style="font-size:12px;color:${n>0?'var(--text)':'var(--muted)'};">${n} lag</span>
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:1rem;color:${p>0?'var(--yellow)':'var(--muted)'};">${p}p</span>
+      </span>`;
+    }).join('');
+    return `<div style="padding:9px 14px;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="width:28px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:1.1rem;color:${i<3?'var(--yellow)':'var(--muted)'};">${medal}</span>
+        <span style="flex:1;font-size:14px;color:var(--text);">${x.name}</span>
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:1.2rem;color:var(--yellow);min-width:42px;text-align:right;">${x.pts}p</span>
+      </div>
+      ${active.length ? `<div style="margin-top:6px;padding-left:40px;display:flex;flex-wrap:wrap;gap:4px;">${breakdown}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  return `<p class="section-title">Flest lag rätt – slutspel</p>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Avancemangspoäng per rätt lag: 16-del 1p · 8-del 2p · kvart 4p · semi 6p · brons 8p · final 10p.</p>
+    <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface);margin-bottom:16px;">${r}</div>`;
+}
+
+function koRoundLabel(num) {
+  const r = KO_ROUNDS.find(r => r.matches.includes(num));
+  return r ? r.label : '';
+}
 function renderSlutspel() {
   const pls = VMDATA.players;
   const ko = KODATA.ko;
@@ -1891,6 +2193,7 @@ function renderSlutspel() {
     </div>`;
 
   return `<p class="section-title">Slutspel</p>
+    ${renderAdvancementResults()}
     ${block('Ensam om sin världsmästare 🏆', uniqueRows(uniqueChamp))}
     ${block('Ensam om en finalist', uniqueRows(uniqueFin))}
     ${block('Mest mot strömmen i slutspelet <span style="color:var(--muted);font-weight:400;font-size:11px;">(gult = avvikande lag)</span>', devRows)}
@@ -1910,37 +2213,52 @@ function renderBonus() {
   const labels = BONUSDATA.labels;
   const B = BONUSDATA.bonus;
 
-  // Per-player count of unique (lone) answers
-  const uniqCount = {}; pls.forEach(p => uniqCount[p]=0);
-  cats.forEach(cat => {
-    const counts = {};
-    pls.forEach(p => { const a=B[p][cat]; if(a) counts[a]=(counts[a]||0)+1; });
-    pls.forEach(p => { const a=B[p][cat]; if(a && counts[a]===1) uniqCount[p]++; });
-  });
-  const bravest = pls.slice().sort((a,b)=> uniqCount[b]-uniqCount[a] || a.localeCompare(b,'sv'))[0];
-
   const blocks = cats.map((cat, ci) => {
     const counts = {};
     pls.forEach(p => { const a=B[p][cat]; if(!a) return; (counts[a]=counts[a]||[]).push(p); });
-    // sort answers: most picked first, then alpha
     const entries = Object.entries(counts).sort((a,b)=> b[1].length-a[1].length || a[0].localeCompare(b[0],'sv'));
+    const facit = BONUSFACIT[cat];
+    const hasFac = facit != null && facit !== '';
+    const winners = hasFac ? pls.filter(p => B[p][cat] && bonusMatch(ci, B[p][cat], facit)) : [];
+
+    // Admin-inmatning med datalist (befintliga svar + lag för lagfrågor)
+    let adminInput = '';
+    if (adminMode) {
+      const teamQ = [2,3,4,5,6].includes(ci);
+      const opts = [...new Set([...Object.keys(counts), ...(teamQ ? allTeams() : [])])].sort((a,b)=>a.localeCompare(b,'sv'));
+      const dl = opts.map(o => `<option value="${escHtml(o)}">`).join('');
+      adminInput = `<div style="display:flex;gap:6px;margin-bottom:10px;">
+        <input id="bf_${ci}" list="bfdl_${ci}" value="${hasFac?escHtml(facit):''}" placeholder="Sätt facit..." ${ci===7?'type="number"':''} style="flex:1;min-width:0;padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px;">
+        <datalist id="bfdl_${ci}">${dl}</datalist>
+        <button onclick="setBonusFacit(${ci}, document.getElementById('bf_${ci}').value)" style="padding:7px 12px;border-radius:6px;font-size:12px;border:1px solid var(--yellow);background:rgba(255,218,0,0.12);color:var(--yellow);cursor:pointer;white-space:nowrap;">Spara</button>
+      </div>`;
+    }
+
+    const facitLine = hasFac ? `<div style="font-size:12px;margin-bottom:8px;color:#63e6be;">Facit: <b>${escHtml(facit)}</b> · ${BONUS_POINTS[ci]}p till ${winners.length} spelare</div>` : '';
+
     const rows = entries.map(([ans, who]) => {
       const lone = who.length === 1;
-      return `<div style="display:flex;align-items:baseline;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
-          <span style="min-width:24px;font-family:'Bebas Neue',sans-serif;font-size:1rem;color:${lone?'var(--yellow)':'var(--muted)'};">${who.length}</span>
-          <span style="flex:1;font-size:13px;color:var(--text);">${escHtml(ans)}${lone?' <span style="color:var(--yellow);font-size:11px;">★ ensam</span>':''}</span>
+      const correct = hasFac && bonusMatch(ci, ans, facit);
+      return `<div style="display:flex;align-items:baseline;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);${correct?'background:rgba(99,230,190,0.08);border-radius:4px;':''}">
+          <span style="min-width:24px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:1rem;color:${correct?'#63e6be':(lone?'var(--yellow)':'var(--muted)')};">${who.length}</span>
+          <span style="flex:1;font-size:13px;color:${correct?'#63e6be':'var(--text)'};">${escHtml(ans)}${correct?' ✓':''}${lone&&!correct?' <span style="color:var(--yellow);font-size:11px;">★ ensam</span>':''}</span>
           <span style="flex:1;font-size:11px;color:var(--muted);text-align:right;">${who.map(escHtml).join(', ')}</span>
         </div>`;
     }).join('');
-    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem 1.1rem;margin-bottom:12px;">
-        <div style="font-size:14px;color:var(--yellow);font-weight:500;margin-bottom:8px;">${labels[ci]}</div>
+
+    return `<div style="background:var(--surface);border:1px solid ${hasFac?'rgba(99,230,190,0.4)':'var(--border)'};border-radius:12px;padding:1rem 1.1rem;margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+          <span style="font-size:14px;color:var(--yellow);font-weight:500;">${labels[ci]}</span>
+          <span style="font-size:11px;color:var(--muted);">${BONUS_POINTS[ci]}p</span>
+        </div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">${cat}</div>
+        ${adminInput}
+        ${facitLine}
         ${rows}
       </div>`;
   }).join('');
 
-  return `<p class="section-title">Bonusfrågor</p>
-    ${blocks}`;
+  return `<p class="section-title">Bonusfrågor</p>${blocks}`;
 }
 
 function renderKuriosa() {
@@ -2097,6 +2415,8 @@ function renderKuriosa() {
       <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface);margin-bottom:1.5rem;">${rows}</div>`;
   }
 
+
+
   return `<p class="section-title">Gruppspel</p>
     ${fiveTable}
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:1.5rem;">${cards}</div>
@@ -2116,7 +2436,38 @@ const GROUP_LAST_MATCH = 72; // matches 1-72 = group stage (knockout teams not y
 const BONUSDATA = {"categories":["Skyttekung","Assistkung","Världsmästare","Vinnare bronsmatch","Lag som gör flest mål i gruppspelet","Lag som släpper in flest mål i gruppspelet","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)","Hur många mål gör Sverige totalt i gruppspelet?"],"labels":["Skyttekung","Assistkung","Världsmästare","Brons-vinnare","Flest mål (grupp)","Flest insläppta (grupp)","Flest kort (grupp)","Sveriges mål (grupp)"],"bonus":{"Adam":{"Skyttekung":"Harry Kane","Assistkung":"Bruno Fernandes","Världsmästare":"Frankrike","Vinnare bronsmatch":"Spanien","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Kap Verde","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Kongo","Hur många mål gör Sverige totalt i gruppspelet?":"4"},"Alexander S":{"Skyttekung":"Harry Kane","Assistkung":"Lamine Yamal","Världsmästare":"England","Vinnare bronsmatch":"Frankrike","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Curaçao","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Bosnien & Herzigovina","Hur många mål gör Sverige totalt i gruppspelet?":"6"},"Anton":{"Skyttekung":"Erling Braut Haaland","Assistkung":"Denzel Dumfries","Världsmästare":"Spanien","Vinnare bronsmatch":"Frankrike","Lag som gör flest mål i gruppspelet":"Tyskland","Lag som släpper in flest mål i gruppspelet":"Irak","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Nya Zeeland","Hur många mål gör Sverige totalt i gruppspelet?":"2"},"Elias":{"Skyttekung":"Kylian Mbappé","Assistkung":"Lamine Yamal","Världsmästare":"Frankrike","Vinnare bronsmatch":"Spanien","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Haiti","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Sverige","Hur många mål gör Sverige totalt i gruppspelet?":"2"},"Grabben":{"Skyttekung":"Kylian Mbappé","Assistkung":"Michael Olise","Världsmästare":"Frankrike","Vinnare bronsmatch":"Kroatien","Lag som gör flest mål i gruppspelet":"Frankrike","Lag som släpper in flest mål i gruppspelet":"Kap Verde","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Argentina","Hur många mål gör Sverige totalt i gruppspelet?":"3"},"Holm":{"Skyttekung":"Erling Braut Haaland","Assistkung":"Martin Odegaard","Världsmästare":"Frankrike","Vinnare bronsmatch":"Spanien","Lag som gör flest mål i gruppspelet":"Schweiz","Lag som släpper in flest mål i gruppspelet":"Jordanien","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Argentina","Hur många mål gör Sverige totalt i gruppspelet?":"4"},"Kuffen":{"Skyttekung":"Harry Kane","Assistkung":"Lamine Yamal","Världsmästare":"Spanien","Vinnare bronsmatch":"Argentina","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Curaçao","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Turkiet","Hur många mål gör Sverige totalt i gruppspelet?":"4"},"Levin":{"Skyttekung":"Lionel Messi","Assistkung":"Lamine Yamal","Världsmästare":"Argentina","Vinnare bronsmatch":"England","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Kap Verde","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"England","Hur många mål gör Sverige totalt i gruppspelet?":"4"},"Pacman":{"Skyttekung":"Lamine Yamal","Assistkung":"Dani Olmo","Världsmästare":"Frankrike","Vinnare bronsmatch":"Spanien","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Haiti","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Nederländerna","Hur många mål gör Sverige totalt i gruppspelet?":"5"},"Ponk":{"Skyttekung":"Kylian Mbappé","Assistkung":"Bruno Fernandes","Världsmästare":"Frankrike","Vinnare bronsmatch":"Spanien","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Haiti","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Tunisien","Hur många mål gör Sverige totalt i gruppspelet?":"4"},"Richard":{"Skyttekung":"Kylian Mbappé","Assistkung":"Pedri","Världsmästare":"Frankrike","Vinnare bronsmatch":"Spanien","Lag som gör flest mål i gruppspelet":"Tyskland","Lag som släpper in flest mål i gruppspelet":"Haiti","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Argentina","Hur många mål gör Sverige totalt i gruppspelet?":"5"},"Rostedt":{"Skyttekung":"Harry Kane","Assistkung":"Bruno Fernandes","Världsmästare":"Spanien","Vinnare bronsmatch":"Portugal","Lag som gör flest mål i gruppspelet":"Tyskland","Lag som släpper in flest mål i gruppspelet":"Sverige","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Irak","Hur många mål gör Sverige totalt i gruppspelet?":"2"},"Mats":{"Skyttekung":"Mikel Oyarzabal","Assistkung":"Rodri","Världsmästare":"Spanien","Vinnare bronsmatch":"Frankrike","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Haiti","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Uzbekistan","Hur många mål gör Sverige totalt i gruppspelet?":"3"},"Måns":{"Skyttekung":"Erling Braut Haaland","Assistkung":"Michael Olise","Världsmästare":"Spanien","Vinnare bronsmatch":"Japan","Lag som gör flest mål i gruppspelet":"Portugal","Lag som släpper in flest mål i gruppspelet":"Haiti","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Skottland","Hur många mål gör Sverige totalt i gruppspelet?":"4"},"Odhe":{"Skyttekung":"Kylian Mbappé","Assistkung":"Lamine Yamal","Världsmästare":"Brasilien","Vinnare bronsmatch":"Argentina","Lag som gör flest mål i gruppspelet":"England","Lag som släpper in flest mål i gruppspelet":"Panama","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Uruguay","Hur många mål gör Sverige totalt i gruppspelet?":"4"},"Scout":{"Skyttekung":"Lamine Yamal","Assistkung":"Ousmane Dembélé","Världsmästare":"Spanien","Vinnare bronsmatch":"Argentina","Lag som gör flest mål i gruppspelet":"Brasilien","Lag som släpper in flest mål i gruppspelet":"Algeriet","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Nederländerna","Hur många mål gör Sverige totalt i gruppspelet?":"2"},"Simon":{"Skyttekung":"Harry Kane","Assistkung":"Jude Bellingham","Världsmästare":"Spanien","Vinnare bronsmatch":"Argentina","Lag som gör flest mål i gruppspelet":"Brasilien","Lag som släpper in flest mål i gruppspelet":"Haiti","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Ghana","Hur många mål gör Sverige totalt i gruppspelet?":"3"},"Sjöstedt":{"Skyttekung":"Kylian Mbappé","Assistkung":"Rodri","Världsmästare":"Frankrike","Vinnare bronsmatch":"Argentina","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Curaçao","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Haiti","Hur många mål gör Sverige totalt i gruppspelet?":"3"},"Tomas S":{"Skyttekung":"Ousmane Dembélé","Assistkung":"Pedri","Världsmästare":"Spanien","Vinnare bronsmatch":"Argentina","Lag som gör flest mål i gruppspelet":"Tyskland","Lag som släpper in flest mål i gruppspelet":"Curaçao","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Senegal","Hur många mål gör Sverige totalt i gruppspelet?":"3"},"Widfeldt":{"Skyttekung":"Harry Kane","Assistkung":"Bruno Fernandes","Världsmästare":"Frankrike","Vinnare bronsmatch":"Portugal","Lag som gör flest mål i gruppspelet":"Spanien","Lag som släpper in flest mål i gruppspelet":"Kap Verde","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Bosnien & Herzigovina","Hur många mål gör Sverige totalt i gruppspelet?":"3"},"Åke":{"Skyttekung":"Dani Olmo","Assistkung":"Rodri","Världsmästare":"Spanien","Vinnare bronsmatch":"Frankrike","Lag som gör flest mål i gruppspelet":"Tyskland","Lag som släpper in flest mål i gruppspelet":"Ghana","Brunkarnas brunkare (flest gula och röda kort i gruppspelet, direkt rött = 2 gula)":"Tyskland","Hur många mål gör Sverige totalt i gruppspelet?":"4"}}};
 const KODATA = {"ko":{"Adam":{"r32":["Sydkorea","Kanada","Tyskland","Turkiet","Nederländerna","Skottland","Brasilien","Sverige","Frankrike","Japan","Elfenbenskusten","Norge","Mexiko","Marocko","England","Kongo","Australien","Bosnien-Herzigovina","Belgien","Ecuador","Colombia","Kroatien","Spanien","Österrike","Schweiz","Nya Zeeland","Argentina","Uruguay","Portugal","Senegal","USA","Egypten"],"r16":["Tyskland","Frankrike","Sydkorea","Nederländerna","Brasilien","Norge","Mexiko","England","Kroatien","Spanien","Australien","Belgien","Argentina","USA","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","England","Argentina"],"final":["Frankrike","England"]},"Alexander S":{"r32":["Mexiko","Kanada","Tyskland","Skottland","Sverige","Marocko","Brasilien","Nederländerna","Frankrike","Japan","Ecuador","Norge","Sydkorea","Elfenbenskusten","England","Senegal","USA","Bosnien-Herzigovina","Belgien","Czechia","Colombia","Kroatien","Spanien","Österrike","Schweiz","Algeriet","Argentina","Uruguay","Portugal","Ghana","Turkiet","Iran"],"r16":["Tyskland","Frankrike","Kanada","Sverige","Nederländerna","Norge","Elfenbenskusten","England","Kroatien","Spanien","USA","Belgien","Argentina","Turkiet","Schweiz","Portugal"],"qf":["Frankrike","Sverige","Spanien","Belgien","Nederländerna","England","Argentina","Schweiz"],"sf":["Frankrike","Spanien","England","Argentina"],"final":["Spanien","England"]},"Anton":{"r32":["Mexiko","Bosnien-Herzigovina","Tyskland","Skottland","Nederländerna","Brasilien","Marocko","Japan","Frankrike","Paraguay","Ecuador","Norge","Czechia","Saudiarabien","Kroatien","Kongo","USA","Elfenbenskusten","Belgien","Sydkorea","Colombia","England","Spanien","Argentina","Schweiz","Algeriet","Österrike","Uruguay","Portugal","Senegal","Turkiet","Egypten"],"r16":["Tyskland","Frankrike","Mexiko","Nederländerna","Marocko","Norge","Czechia","Kroatien","England","Spanien","USA","Belgien","Österrike","Turkiet","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Marocko","Kroatien","Österrike","Schweiz"],"sf":["Frankrike","Spanien","Marocko","Österrike"],"final":["Spanien","Marocko"]},"Elias":{"r32":["Mexiko","Kanada","Tyskland","Skottland","Nederländerna","Marocko","Brasilien","Japan","Frankrike","USA","Ecuador","Norge","Sydkorea","Elfenbenskusten","England","Senegal","Turkiet","Österrike","Belgien","Czechia","Colombia","Kroatien","Spanien","Algeriet","Schweiz","Egypten","Argentina","Uruguay","Portugal","Ghana","Paraguay","Iran"],"r16":["Tyskland","Frankrike","Mexiko","Nederländerna","Brasilien","Norge","Sydkorea","England","Colombia","Spanien","Turkiet","Belgien","Argentina","Paraguay","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","England","Argentina"],"final":["Frankrike","England"]},"Grabben":{"r32":["Czechia","Kanada","Tyskland","Skottland","Nederländerna","Marocko","Brasilien","Japan","Frankrike","Sverige","Ecuador","Senegal","Mexiko","Elfenbenskusten","Kroatien","Norge","Turkiet","Österrike","Belgien","Sydkorea","Colombia","England","Spanien","Algeriet","Schweiz","Nya Zeeland","Argentina","Uruguay","Portugal","Ghana","Australien","Egypten"],"r16":["Tyskland","Frankrike","Czechia","Nederländerna","Brasilien","Ecuador","Mexiko","Kroatien","England","Spanien","Turkiet","Belgien","Argentina","Egypten","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","Kroatien","Argentina","Portugal"],"sf":["Frankrike","Spanien","Kroatien","Argentina"],"final":["Frankrike","Argentina"]},"Holm":{"r32":["Sydkorea","Kanada","Tyskland","Sverige","Nederländerna","Marocko","Brasilien","Japan","Frankrike","Iran","Elfenbenskusten","Norge","Mexiko","Ecuador","England","Senegal","USA","Bosnien-Herzigovina","Belgien","Czechia","Colombia","Kroatien","Spanien","Algeriet","Schweiz","Österrike","Argentina","Uruguay","Portugal","Ghana","Australien","Egypten"],"r16":["Tyskland","Frankrike","Kanada","Nederländerna","Japan","Norge","Mexiko","England","Kroatien","Spanien","USA","Belgien","Argentina","Egypten","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Norge","England","Argentina","Schweiz"],"sf":["Frankrike","Spanien","England","Schweiz"],"final":["Frankrike","England"]},"Kuffen":{"r32":["Sydkorea","Kanada","Tyskland","Paraguay","Nederländerna","Marocko","Brasilien","Sverige","Frankrike","Japan","Ecuador","Norge","Mexiko","Skottland","England","Kongo","Turkiet","Bosnien-Herzigovina","Belgien","Elfenbenskusten","Colombia","Kroatien","Spanien","Österrike","Schweiz","Algeriet","Argentina","Uruguay","Portugal","Senegal","USA","Egypten"],"r16":["Tyskland","Frankrike","Sydkorea","Nederländerna","Brasilien","Norge","Mexiko","England","Kroatien","Spanien","Turkiet","Belgien","Argentina","USA","Schweiz","Portugal"],"qf":["Tyskland","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Tyskland","Spanien","England","Argentina"],"final":["Spanien","England"]},"Levin":{"r32":["Mexiko","Bosnien-Herzigovina","Tyskland","Skottland","Japan","Marocko","Brasilien","Sverige","Norge","USA","Elfenbenskusten","Frankrike","Czechia","Saudiarabien","England","Senegal","Paraguay","Nederländerna","Belgien","Sydkorea","Colombia","Kroatien","Spanien","Österrike","Schweiz","Ecuador","Argentina","Uruguay","Portugal","Ghana","Turkiet","Egypten"],"r16":["Tyskland","Norge","Mexiko","Japan","Brasilien","Frankrike","Czechia","England","Kroatien","Spanien","Nederländerna","Belgien","Argentina","Turkiet","Schweiz","Portugal"],"qf":["Norge","Japan","Spanien","Belgien","Frankrike","England","Argentina","Portugal"],"sf":["Norge","Spanien","England","Argentina"],"final":["Spanien","Argentina"]},"Pacman":{"r32":["Czechia","Qatar","Tyskland","Australien","Nederländerna","Marocko","Brasilien","Sverige","Frankrike","Japan","Elfenbenskusten","Norge","Mexiko","Skottland","England","Senegal","Turkiet","Ecuador","Belgien","Sydkorea","Colombia","Kroatien","Spanien","Österrike","Schweiz","Iran","Argentina","Uruguay","Portugal","Panama","Paraguay","Egypten"],"r16":["Tyskland","Frankrike","Czechia","Nederländerna","Brasilien","Norge","Mexiko","England","Kroatien","Spanien","Turkiet","Belgien","Argentina","Paraguay","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","Brasilien","Argentina"],"final":["Frankrike","Argentina"]},"Ponk":{"r32":["Sydkorea","Kanada","Tyskland","Skottland","Japan","Marocko","Brasilien","Nederländerna","Frankrike","Sverige","Elfenbenskusten","Norge","Mexiko","Ecuador","England","Senegal","USA","Bosnien-Herzigovina","Belgien","Czechia","Colombia","Kroatien","Spanien","Österrike","Schweiz","Algeriet","Argentina","Uruguay","Portugal","Ghana","Turkiet","Iran"],"r16":["Tyskland","Frankrike","Sydkorea","Japan","Brasilien","Norge","Mexiko","England","Kroatien","Spanien","USA","Belgien","Argentina","Turkiet","Schweiz","Portugal"],"qf":["Frankrike","Japan","Spanien","USA","Brasilien","England","Argentina","Schweiz"],"sf":["Frankrike","Spanien","Brasilien","Argentina"],"final":["Frankrike","Brasilien"]},"Richard":{"r32":["Sydkorea","Kanada","Tyskland","Skottland","Nederländerna","Marocko","Brasilien","Japan","Frankrike","Sverige","Ecuador","Norge","Mexiko","Elfenbenskusten","England","Kongo","USA","Algeriet","Belgien","Czechia","Colombia","Kroatien","Spanien","Österrike","Schweiz","Egypten","Argentina","Uruguay","Portugal","Senegal","Turkiet","Iran"],"r16":["Tyskland","Frankrike","Kanada","Nederländerna","Brasilien","Norge","Mexiko","England","Colombia","Spanien","USA","Belgien","Argentina","Turkiet","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","Brasilien","Argentina"],"final":["Frankrike","Brasilien"]},"Rostedt":{"r32":["Czechia","Kanada","Tyskland","Skottland","Nederländerna","Marocko","Brasilien","Japan","Frankrike","Paraguay","Elfenbenskusten","Norge","Mexiko","Saudiarabien","England","Senegal","Turkiet","Bosnien-Herzigovina","Egypten","Sydkorea","Colombia","Kroatien","Spanien","Österrike","Schweiz","Iran","Argentina","Uruguay","Portugal","Ecuador","USA","Belgien"],"r16":["Tyskland","Frankrike","Czechia","Marocko","Brasilien","Norge","Mexiko","England","Kroatien","Spanien","Turkiet","Egypten","Argentina","Belgien","Schweiz","Portugal"],"qf":["Frankrike","Marocko","Spanien","Egypten","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","England","Portugal"],"final":["Spanien","England"]},"Mats":{"r32":["Mexiko","Kanada","Tyskland","Skottland","Japan","Marocko","Brasilien","Nederländerna","Frankrike","Paraguay","Ecuador","Norge","Sydkorea","Elfenbenskusten","England","Algeriet","Turkiet","Bosnien-Herzigovina","Belgien","Czechia","Colombia","Kroatien","Spanien","Österrike","Schweiz","Egypten","Argentina","Uruguay","Portugal","Ghana","USA","Iran"],"r16":["Tyskland","Frankrike","Mexiko","Japan","Brasilien","Ecuador","Sydkorea","England","Colombia","Spanien","Turkiet","Belgien","Argentina","USA","Schweiz","Portugal"],"qf":["Frankrike","Japan","Spanien","Turkiet","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","England","Argentina"],"final":["Spanien","Argentina"]},"Måns":{"r32":["Mexiko","Bosnien-Herzigovina","Ecuador","Skottland","Japan","Brasilien","Marocko","Nederländerna","Frankrike","Sverige","Tyskland","Norge","Sydkorea","Elfenbenskusten","England","Senegal","Turkiet","Kanada","Belgien","Algeriet","Uzbekistan","Kroatien","Spanien","Österrike","Schweiz","Egypten","Argentina","Uruguay","Portugal","Ghana","Paraguay","Iran"],"r16":["Ecuador","Frankrike","Mexiko","Japan","Marocko","Norge","Elfenbenskusten","England","Kroatien","Spanien","Turkiet","Belgien","Argentina","Paraguay","Schweiz","Portugal"],"qf":["Frankrike","Japan","Spanien","Turkiet","Norge","England","Argentina","Portugal"],"sf":["Japan","Spanien","Norge","Argentina"],"final":["Spanien","Argentina"]},"Odhe":{"r32":["Czechia","Kanada","Tyskland","Australien","Nederländerna","Marocko","Brasilien","Sverige","Frankrike","Japan","Elfenbenskusten","Senegal","Mexiko","Skottland","England","Norge","USA","Ecuador","Belgien","Sydafrika","Colombia","Kroatien","Spanien","Österrike","Schweiz","Algeriet","Argentina","Uruguay","Portugal","Ghana","Turkiet","Egypten"],"r16":["Tyskland","Frankrike","Kanada","Nederländerna","Brasilien","Senegal","Mexiko","England","Colombia","Spanien","USA","Belgien","Argentina","Turkiet","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","Brasilien","Argentina"],"final":["Frankrike","Brasilien"]},"Scout":{"r32":["Czechia","Kanada","Tyskland","Turkiet","Nederländerna","Skottland","Brasilien","Sverige","Norge","Japan","Elfenbenskusten","Frankrike","Mexiko","Kap Verde","England","Kongo","Paraguay","Ecuador","Belgien","Sydkorea","Colombia","Kroatien","Spanien","Österrike","Schweiz","Iran","Argentina","Uruguay","Portugal","Ghana","USA","Egypten"],"r16":["Tyskland","Norge","Kanada","Nederländerna","Brasilien","Frankrike","Mexiko","England","Kroatien","Spanien","Paraguay","Belgien","Argentina","USA","Schweiz","Portugal"],"qf":["Norge","Nederländerna","Spanien","Belgien","Frankrike","England","Argentina","Portugal"],"sf":["Norge","Spanien","Frankrike","Argentina"],"final":["Spanien","Frankrike"]},"Simon":{"r32":["Sydkorea","Schweiz","Tyskland","Skottland","Nederländerna","Marocko","Brasilien","Japan","Frankrike","Sverige","Ecuador","Norge","Mexiko","Saudiarabien","England","Algeriet","Turkiet","Qatar","Belgien","Czechia","Colombia","Kroatien","Spanien","Österrike","Kanada","Iran","Argentina","Uruguay","Portugal","Paraguay","USA","Egypten"],"r16":["Tyskland","Frankrike","Schweiz","Nederländerna","Brasilien","Norge","Mexiko","England","Colombia","Spanien","Turkiet","Belgien","Argentina","USA","Kanada","Portugal"],"qf":["Frankrike","Schweiz","Spanien","Turkiet","Norge","England","Argentina","Kanada"],"sf":["Frankrike","Spanien","England","Argentina"],"final":["Spanien","England"]},"Sjöstedt":{"r32":["Mexiko","Kanada","Tyskland","Paraguay","Nederländerna","Marocko","Brasilien","Japan","Frankrike","Sverige","Ecuador","Norge","Sydkorea","Skottland","England","Algeriet","Turkiet","Bosnien-Herzigovina","Belgien","Czechia","Colombia","Kroatien","Spanien","Österrike","Schweiz","Iran","Argentina","Uruguay","Portugal","Elfenbenskusten","USA","Egypten"],"r16":["Tyskland","Frankrike","Mexiko","Nederländerna","Brasilien","Norge","Sydkorea","England","Colombia","Spanien","Turkiet","Belgien","Argentina","Egypten","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","England","Argentina"],"final":["Frankrike","England"]},"Tomas S":{"r32":["Mexiko","Schweiz","Tyskland","Skottland","Japan","Brasilien","Marocko","Nederländerna","Frankrike","Turkiet","Elfenbenskusten","Senegal","Sydkorea","Ecuador","England","Norge","USA","Bosnien-Herzigovina","Egypten","Czechia","Portugal","Kroatien","Spanien","Algeriet","Kanada","Österrike","Argentina","Uruguay","Colombia","Ghana","Paraguay","Belgien"],"r16":["Tyskland","Frankrike","Mexiko","Brasilien","Nederländerna","Senegal","Sydkorea","England","Kroatien","Spanien","USA","Egypten","Argentina","Paraguay","Kanada","Ghana"],"qf":["Frankrike","Mexiko","Spanien","USA","Senegal","England","Argentina","Kanada"],"sf":["Frankrike","Spanien","England","Argentina"],"final":["Spanien","England"]},"Widfeldt":{"r32":["Czechia","Bosnien-Herzigovina","Tyskland","USA","Nederländerna","Marocko","Brasilien","Japan","Frankrike","Sverige","Ecuador","Norge","Mexiko","Skottland","England","Senegal","Paraguay","Kanada","Belgien","Elfenbenskusten","Colombia","Kroatien","Spanien","Österrike","Schweiz","Algeriet","Argentina","Uruguay","Portugal","Ghana","Turkiet","Egypten"],"r16":["Tyskland","Frankrike","Czechia","Nederländerna","Brasilien","Norge","Mexiko","England","Colombia","Spanien","Paraguay","Belgien","Argentina","Turkiet","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","Belgien","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","England","Portugal"],"final":["Frankrike","England"]},"Åke":{"r32":["Czechia","Bosnien-Herzigovina","Tyskland","Skottland","Nederländerna","Marocko","Brasilien","Tunisien","Frankrike","Sverige","Ecuador","Norge","Mexiko","Uruguay","England","Algeriet","USA","Qatar","Belgien","Sydkorea","Colombia","Kroatien","Spanien","Österrike","Schweiz","Nya Zeeland","Argentina","Saudiarabien","Portugal","Panama","Turkiet","Egypten"],"r16":["Tyskland","Frankrike","Czechia","Nederländerna","Brasilien","Norge","Mexiko","England","Colombia","Spanien","USA","Belgien","Argentina","Turkiet","Schweiz","Portugal"],"qf":["Frankrike","Nederländerna","Spanien","USA","Brasilien","England","Argentina","Portugal"],"sf":["Frankrike","Spanien","Brasilien","Argentina"],"final":["Spanien","Brasilien"]}}};
 function matchdaySchedule() {
-  return VMDATA.schedule.filter(m => m.n <= GROUP_LAST_MATCH);
+  return VMDATA.schedule;
+}
+// Faktiska lag för en match: slutspelsmatcher hämtas från bracket-kedjan
+function matchTeams(m) {
+  if (m.n > GROUP_LAST_MATCH) { const t = koMatchTeams(m.n); return [t[0], t[1]]; }
+  return [m.h, m.a];
+}
+function koWinnerButtons(num, t) {
+  const w = ADVANCERS.winners[num];
+  return `<div style="margin-top:8px;">
+    <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Vem gick vidare?</div>
+    <div style="display:flex;gap:6px;">
+      ${[t[0],t[1]].map(team => `<button onclick="setKoWinner(${num},'${escHtml(team).replace(/'/g,"\\'")}')" style="flex:1;padding:6px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid ${w===team?'#63e6be':'var(--border)'};background:${w===team?'rgba(99,230,190,0.16)':'rgba(255,255,255,0.04)'};color:${w===team?'#63e6be':'var(--text)'};">${w===team?'✓ ':''}${escHtml(team)}</button>`).join('')}
+    </div>
+  </div>`;
+}
+function koControls(m) {
+  const num = m.n;
+  if (R32_MATCHES.includes(num)) {
+    const teams = allTeams();
+    const t = ADVANCERS.r32[num] || [null,null];
+    const opt = sel => teams.map(x => `<option value="${escHtml(x)}"${x===sel?' selected':''}>${escHtml(x)}</option>`).join('');
+    const setRow = `<div style="display:flex;gap:6px;align-items:center;margin-top:8px;">
+        <select id="r32a_${num}" style="flex:1;min-width:0;padding:6px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;"><option value="">– lag 1 –</option>${opt(t[0])}</select>
+        <select id="r32b_${num}" style="flex:1;min-width:0;padding:6px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;"><option value="">– lag 2 –</option>${opt(t[1])}</select>
+        <button onclick="saveR32Match(${num})" style="padding:6px 10px;border-radius:6px;font-size:12px;border:1px solid var(--yellow);background:rgba(255,218,0,0.12);color:var(--yellow);cursor:pointer;white-space:nowrap;">Sätt lag</button>
+      </div>`;
+    return setRow + ((t[0] && t[1]) ? koWinnerButtons(num, t) : '');
+  }
+  const t = koMatchTeams(num);
+  if (!t[0] || !t[1]) return '<div style="font-size:11px;color:var(--muted);margin-top:8px;">Väntar på tidigare slutspelsresultat</div>';
+  return koWinnerButtons(num, t);
 }
 function allMatchDates() {
   return [...new Set(matchdaySchedule().map(m => m.d))].sort();
@@ -2183,21 +2534,24 @@ function renderMatchday() {
   if (matchdayMode === 'mine') {
     let matchRows;
     if (!selectedMatchdayPlayer) {
-      matchRows = matches.map(m =>
-        `<div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border);">
-          <span style="flex:1;font-size:14px;color:var(--text);text-align:right;">${m.h}</span>
+      matchRows = matches.map(m => {
+        const [th, ta] = matchTeams(m);
+        return `<div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border);">
+          <span style="flex:1;font-size:14px;color:var(--text);text-align:right;">${th||'?'}</span>
           <span style="font-size:12px;color:var(--muted);min-width:30px;text-align:center;">vs</span>
-          <span style="flex:1;font-size:14px;color:var(--text);">${m.a}</span>
-        </div>`).join('');
+          <span style="flex:1;font-size:14px;color:var(--text);">${ta||'?'}</span>
+        </div>`;
+      }).join('');
     } else {
       const ptips = VMDATA.tips[selectedMatchdayPlayer] || {};
       matchRows = matches.map(m => {
         const t = ptips[String(m.n)];
         const tipStr = t ? `${t[0]}–${t[1]}` : '–';
+        const [th, ta] = matchTeams(m);
         return `<div style="display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border);">
-          <span style="flex:1;font-size:14px;color:var(--text);text-align:right;">${m.h}</span>
+          <span style="flex:1;font-size:14px;color:var(--text);text-align:right;">${th||'?'}</span>
           <span style="font-family:'Bebas Neue',sans-serif;font-size:1.2rem;color:var(--yellow);min-width:46px;text-align:center;">${tipStr}</span>
-          <span style="flex:1;font-size:14px;color:var(--text);">${m.a}</span>
+          <span style="flex:1;font-size:14px;color:var(--text);">${ta||'?'}</span>
         </div>`;
       }).join('');
     }
@@ -2211,6 +2565,10 @@ function renderMatchday() {
     body = matches.map(m => {
       const res = FACIT[m.n];
       const played = Array.isArray(res);
+      const isKo = m.n > GROUP_LAST_MATCH;
+      const [th, ta] = matchTeams(m);
+      const hName = th || '?', aName = ta || '?';
+      const koWinner = isKo ? ADVANCERS.winners[m.n] : null;
 
       // Sammanfattning + header för spelade matcher
       let header, extra;
@@ -2223,15 +2581,16 @@ function renderMatchday() {
           if (matchPoints(t, res) >= 3) outcome++;
         });
         header = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-            <span style="flex:1;font-size:14px;color:var(--text);text-align:right;font-weight:500;">${m.h}</span>
+            <span style="flex:1;font-size:14px;color:var(--text);text-align:right;font-weight:500;">${hName}</span>
             <span style="font-family:'Bebas Neue',sans-serif;font-size:1.45rem;color:var(--yellow);min-width:54px;text-align:center;">${res[0]}–${res[1]}</span>
-            <span style="flex:1;font-size:14px;color:var(--text);font-weight:500;">${m.a}</span>
+            <span style="flex:1;font-size:14px;color:var(--text);font-weight:500;">${aName}</span>
           </div>`;
         extra = `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;text-align:center;">🎯 ${exact} exakt · ✓ ${outcome} rätt utfall <span style="opacity:0.6;">av ${counted}</span></div>`;
       } else {
-        header = `<div style="font-size:14px;color:var(--text);margin-bottom:8px;font-weight:500;">${m.h} <span style="color:var(--muted);font-weight:400;">–</span> ${m.a}</div>`;
-        extra = matchInsight(m);
+        header = `<div style="font-size:14px;color:var(--text);margin-bottom:8px;font-weight:500;text-align:${isKo?'center':'left'};">${hName} <span style="color:var(--muted);font-weight:400;">–</span> ${aName}</div>`;
+        extra = isKo ? '' : matchInsight(m);
       }
+      const advLine = (isKo && koWinner) ? `<div style="font-size:12px;color:#63e6be;margin-bottom:10px;text-align:center;">✓ ${escHtml(koWinner)} gick vidare</div>` : '';
 
       const chips = sortedPlayers.map(pl => {
         const t = (VMDATA.tips[pl]||{})[String(m.n)];
@@ -2257,14 +2616,20 @@ function renderMatchday() {
       }).join('');
 
       return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem 1.1rem;margin-bottom:12px;">
+        ${isKo ? `<div style="font-size:11px;color:var(--muted);margin-bottom:6px;text-align:center;letter-spacing:0.04em;">Match ${m.n} · ${koRoundLabel(m.n)}</div>` : ''}
         ${header}
-        ${played ? extra : matchInsight(m)}
+        ${played ? extra : (isKo ? '' : matchInsight(m))}
+        ${advLine}
         <div style="display:flex;flex-wrap:wrap;gap:6px;">${chips}</div>
-        ${adminMode ? `<div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
-          <input id="h_${m.n}" type="number" min="0" max="20" ${played?`value="${res[0]}"`:'placeholder="H"'} style="width:52px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;text-align:center;font-family:'DM Sans',sans-serif;">
-          <span style="color:var(--muted);">–</span>
-          <input id="a_${m.n}" type="number" min="0" max="20" ${played?`value="${res[1]}"`:'placeholder="B"'} style="width:52px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;text-align:center;font-family:'DM Sans',sans-serif;">
-          <button onclick="saveMatchResult(${m.n},'${active}')" style="padding:6px 14px;border-radius:6px;font-size:12px;border:1px solid ${played?'rgba(255,255,255,0.3)':'var(--yellow)'};background:${played?'rgba(255,255,255,0.06)':'rgba(255,218,0,0.12)'};color:${played?'var(--muted)':'var(--yellow)'};cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;">${played?'Ändra':'Spara'}</button>
+        ${adminMode ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input id="h_${m.n}" type="number" min="0" max="20" ${played?`value="${res[0]}"`:'placeholder="H"'} style="width:52px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;text-align:center;font-family:'DM Sans',sans-serif;">
+            <span style="color:var(--muted);">–</span>
+            <input id="a_${m.n}" type="number" min="0" max="20" ${played?`value="${res[1]}"`:'placeholder="B"'} style="width:52px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;text-align:center;font-family:'DM Sans',sans-serif;">
+            <button onclick="saveMatchResult(${m.n},'${active}')" style="padding:6px 14px;border-radius:6px;font-size:12px;border:1px solid ${played?'rgba(255,255,255,0.3)':'var(--yellow)'};background:${played?'rgba(255,255,255,0.06)':'rgba(255,218,0,0.12)'};color:${played?'var(--muted)':'var(--yellow)'};cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;">${played?'Ändra':'Spara'}</button>
+            <span style="font-size:11px;color:var(--muted);">90 min</span>
+          </div>
+          ${isKo ? koControls(m) : ''}
         </div>` : ''}
       </div>`;
     }).join('');
