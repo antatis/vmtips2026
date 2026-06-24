@@ -529,7 +529,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.16</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.19</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -2068,7 +2068,37 @@ function renderKuriosa() {
       </div>`;
   }).join('');
 
+  // 5-poängstabell (exakta resultat) — bara om gruppspelsfacit finns
+  const playedGroup = Object.keys(FACIT).filter(mn => Number(mn) <= GROUP_LAST_MATCH);
+  let fiveTable = '';
+  if (playedGroup.length > 0) {
+    const fives = pls.map(p => {
+      let cnt = 0;
+      playedGroup.forEach(mn => {
+        const tip = VMDATA.tips[p][mn], res = FACIT[mn];
+        if (tip && res && matchPoints(tip, res) === 5) cnt++;
+      });
+      return { name: p, cnt };
+    }).filter(x => x.cnt > 0).sort((a,b) => b.cnt - a.cnt || a.name.localeCompare(b.name,'sv'));
+
+    const rows = fives.length
+      ? fives.map((x, i) => {
+          const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1);
+          return `<div style="display:flex;align-items:center;gap:12px;padding:9px 14px;border-bottom:1px solid var(--border);">
+            <span style="width:28px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:1.1rem;color:${i<3?'var(--yellow)':'var(--muted)'};">${medal}</span>
+            <span style="flex:1;font-size:14px;color:var(--text);">${x.name}</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:1.2rem;color:var(--yellow);min-width:32px;text-align:right;">${x.cnt}</span>
+          </div>`;
+        }).join('')
+      : '<p style="padding:14px;font-size:13px;color:var(--muted);">Ingen har prickat ett exakt resultat än.</p>';
+
+    fiveTable = `<p class="section-title">Flest fullträffar 🎯</p>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Antal exakta resultat (5 poäng) i gruppspelet, av ${playedGroup.length} spelade ${playedGroup.length===1?'match':'matcher'}.</p>
+      <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface);margin-bottom:1.5rem;">${rows}</div>`;
+  }
+
   return `<p class="section-title">Gruppspel</p>
+    ${fiveTable}
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:1.5rem;">${cards}</div>
     <p class="section-title">Wildcard-tipparen</p>
     <p style="font-size:12px;color:var(--muted);margin-bottom:12px;max-width:520px;">Vem tippar mest mot strömmen? Poäng ges för att avvika från majoritetens utfall — mest när man är ensam — plus en mindre bonus för ovanliga exakta resultat.</p>
@@ -2393,6 +2423,7 @@ init();
   tick();
   setInterval(tick, 1000);
 })();
+
 </script>
 </body>
 </html>
