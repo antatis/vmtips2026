@@ -506,6 +506,7 @@
         <button class="btn sm" onclick="saveSnapshot()">💾 Spara snapshot</button>
         <button class="btn sm danger" onclick="deleteLastSnapshot()">🗑 Ta bort senaste</button>
         <button class="btn sm danger" id="clearFacitBtn" onclick="clearFacit()" style="display:none;">🧹 Rensa facit</button>
+        <button class="btn sm danger" id="clearAdvBtn" onclick="clearAdvancers()" style="display:none;">🧹 Rensa slutspel</button>
       </div>
       <div class="row">
         <label>
@@ -529,7 +530,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.32</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.36</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -580,6 +581,8 @@ async function loadSnapshots() {
     snapshots = all.filter(s => s.label && !s.label.startsWith('__'));
     const btn = document.getElementById('clearFacitBtn');
     if (btn) btn.style.display = _facitRowId ? 'inline-block' : 'none';
+    const advBtn = document.getElementById('clearAdvBtn');
+    if (advBtn) advBtn.style.display = (_advRowId || hasAdvData()) ? 'inline-block' : 'none';
     updateFooter();
     return snapshots;
   } catch(e) { setStatus('Kunde inte hämta historik: ' + e.message, true); return []; }
@@ -707,6 +710,20 @@ async function clearFacit() {
     renderMatchday(); renderFacitStats();
     setStatus('Facit rensat.');
   } catch(e) { setStatus('Kunde inte rensa facit: ' + e.message, true); }
+}
+async function clearAdvancers() {
+  if (!confirm('Rensa allt slutspel? Detta tar bort alla satta lag och vidare-val (sextondelar → final).')) return;
+  try {
+    if (_advRowId) await supabase('DELETE', 'snapshots?id=eq.' + _advRowId);
+    // ta även bort eventuella dubbletter
+    const dups = (await supabase('GET', 'snapshots?label=eq.__ADVANCERS__&select=id')) || [];
+    for (const d of dups) { try { await supabase('DELETE', 'snapshots?id=eq.' + d.id); } catch(e) {} }
+    ADVANCERS = { r32:{}, winners:{} }; _advRowId = null;
+    await loadSnapshots();
+    currentData = liveCurrentData(); renderLeaderboard(currentData); renderChart(); renderMetricCards();
+    renderMatchday(); renderInsights();
+    setStatus('Slutspelsdata rensad.');
+  } catch(e) { setStatus('Kunde inte rensa slutspel: ' + e.message, true); }
 }
 async function saveFacit(facit) {
   if (_facitRowId) { try { await supabase('DELETE', 'snapshots?id=eq.' + _facitRowId); } catch(e) {} }
@@ -1412,7 +1429,7 @@ function renderChart() {
               ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 12 },
                 stepSize: (() => { const maxVal = Math.max(...datasets.flatMap(d => d.data.filter(v => typeof v === 'number' && isFinite(v)))); return maxVal > 150 ? 20 : maxVal > 75 ? 10 : maxVal > 30 ? 5 : 2; })() },
               title: { display: true, text: 'Poäng', color: 'rgba(255,230,32,0.8)', font: { size: 12 } } },
-        x: { grid: { color: 'rgba(255,230,32,0.08)' }, ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 11 }, autoSkip: false, maxRotation: 35 } }
+        x: { grid: { color: 'rgba(255,230,32,0.08)' }, ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 11 }, autoSkip: true, maxTicksLimit: 10, maxRotation: 45, minRotation: 0 } }
       }
     }
   });
@@ -2588,7 +2605,7 @@ function renderMatchday() {
         extra = `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;text-align:center;">🎯 ${exact} exakt · ✓ ${outcome} rätt utfall <span style="opacity:0.6;">av ${counted}</span></div>`;
       } else {
         header = `<div style="font-size:14px;color:var(--text);margin-bottom:8px;font-weight:500;text-align:${isKo?'center':'left'};">${hName} <span style="color:var(--muted);font-weight:400;">–</span> ${aName}</div>`;
-        extra = isKo ? '' : matchInsight(m);
+        extra = matchInsight(m);
       }
       const advLine = (isKo && koWinner) ? `<div style="font-size:12px;color:#63e6be;margin-bottom:10px;text-align:center;">✓ ${escHtml(koWinner)} gick vidare</div>` : '';
 
@@ -2618,7 +2635,7 @@ function renderMatchday() {
       return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem 1.1rem;margin-bottom:12px;">
         ${isKo ? `<div style="font-size:11px;color:var(--muted);margin-bottom:6px;text-align:center;letter-spacing:0.04em;">Match ${m.n} · ${koRoundLabel(m.n)}</div>` : ''}
         ${header}
-        ${played ? extra : (isKo ? '' : matchInsight(m))}
+        ${played ? extra : matchInsight(m)}
         ${advLine}
         <div style="display:flex;flex-wrap:wrap;gap:6px;">${chips}</div>
         ${adminMode ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
@@ -2699,7 +2716,10 @@ function matchInsight(m) {
   const domShare = counts[dom] / total;
 
   let contraLine = '';
-  const phrase = o => o === 'X' ? 'oavgjort' : (o === '1' ? m.h : m.a) + '-vinst';
+  const isKoIns = m.n > GROUP_LAST_MATCH;
+  const _t = isKoIns ? koMatchTeams(m.n) : [m.h, m.a];
+  const _h = _t[0] || (isKoIns ? '?' : m.h), _a = _t[1] || (isKoIns ? '?' : m.a);
+  const phrase = o => o === 'X' ? 'oavgjort' : (o === '1' ? _h : _a) + '-vinst';
   const maxCount = Math.max(counts['1'], counts['X'], counts['2']);
   const groups = [];
   // Rare decisive picks: only 1-2 people tipped a home/away win the rest avoided
