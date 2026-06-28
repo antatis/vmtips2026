@@ -530,7 +530,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.36</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.37</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -1231,13 +1231,17 @@ async function saveAdvancers() {
 // Poäng per fråga, samma ordning som BONUSDATA.categories
 const BONUS_POINTS = [20, 15, 20, 15, 10, 10, 10, 10];
 function normBonus(v) { return String(v == null ? '' : v).trim().toLowerCase(); }
-// Bonuspoäng för en spelare: varje avgjord fråga (facit satt) ger sina poäng vid rätt svar
+// Bonuspoäng för en spelare: varje avgjord fråga (facit satt) ger sina poäng vid rätt svar.
+// Facit kan vara flera svar (kommaseparerade, t.ex. delad titel) — rätt om svaret matchar något.
 function bonusMatch(ci, ans, facit) {
-  if (ci === 7) { // Sveriges mål — jämför som tal
+  if (facit == null || facit === '') return false;
+  if (ci === 7) { // Sveriges mål — enkelt tal
     const a = parseFloat(String(ans).replace(',', '.')), f = parseFloat(String(facit).replace(',', '.'));
     if (!isNaN(a) && !isNaN(f)) return a === f;
+    return normBonus(ans) === normBonus(facit);
   }
-  return normBonus(ans) === normBonus(facit);
+  const facits = String(facit).split(',').map(normBonus).filter(x => x);
+  return facits.includes(normBonus(ans));
 }
 function bonusPoints(player) {
   let pts = 0;
@@ -2245,7 +2249,7 @@ function renderBonus() {
       const opts = [...new Set([...Object.keys(counts), ...(teamQ ? allTeams() : [])])].sort((a,b)=>a.localeCompare(b,'sv'));
       const dl = opts.map(o => `<option value="${escHtml(o)}">`).join('');
       adminInput = `<div style="display:flex;gap:6px;margin-bottom:10px;">
-        <input id="bf_${ci}" list="bfdl_${ci}" value="${hasFac?escHtml(facit):''}" placeholder="Sätt facit..." ${ci===7?'type="number"':''} style="flex:1;min-width:0;padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px;">
+        <input id="bf_${ci}" list="bfdl_${ci}" value="${hasFac?escHtml(facit):''}" placeholder="${ci===7?'Sätt facit...':'Facit (flera = komma)...'}" ${ci===7?'type="number"':''} style="flex:1;min-width:0;padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px;">
         <datalist id="bfdl_${ci}">${dl}</datalist>
         <button onclick="setBonusFacit(${ci}, document.getElementById('bf_${ci}').value)" style="padding:7px 12px;border-radius:6px;font-size:12px;border:1px solid var(--yellow);background:rgba(255,218,0,0.12);color:var(--yellow);cursor:pointer;white-space:nowrap;">Spara</button>
       </div>`;
