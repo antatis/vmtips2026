@@ -530,7 +530,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.37</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.38</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -2079,6 +2079,63 @@ function renderAdvancementResults() {
     <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface);margin-bottom:16px;">${r}</div>`;
 }
 
+let koTreePlayer = null;
+function setKoTreePlayer(p) { koTreePlayer = p || null; renderInsights(); }
+function teamEliminated(team) {
+  for (let m = 73; m <= 104; m++) {
+    const t = koMatchTeams(m), w = ADVANCERS.winners[m];
+    if (w && t[0] && t[1] && (t[0] === team || t[1] === team) && w !== team) return true;
+  }
+  const r32set = advancedSets().r32;
+  if (r32set.size >= 32 && !r32set.has(team)) return true;
+  return false;
+}
+function renderKoTree() {
+  if (!hasAdvData()) return '';
+  const players = VMDATA.players;
+  const sel = (koTreePlayer && players.includes(koTreePlayer)) ? koTreePlayer : players[0];
+  const ko = KODATA.ko[sel] || {};
+  const sets = advancedSets();
+  const rounds = [
+    { key:'r32', label:'Sextondel', pts:1 },
+    { key:'r16', label:'Åttondel', pts:2 },
+    { key:'qf',  label:'Kvart', pts:4 },
+    { key:'sf',  label:'Semi', pts:6 },
+    { key:'final', label:'Final', pts:10 },
+  ];
+  const opts = players.map(p => `<option value="${escHtml(p)}"${p===sel?' selected':''}>${escHtml(p)}</option>`).join('');
+  const selector = `<select onchange="setKoTreePlayer(this.value)" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;margin-bottom:10px;">${opts}</select>`;
+
+  let totalScored = 0;
+  const roundBlocks = rounds.map(r => {
+    const teams = ko[r.key] || [];
+    const chips = teams.map(t => {
+      const scored = sets[r.key].has(t);
+      const dead = !scored && teamEliminated(t);
+      if (scored) totalScored += r.pts;
+      let bg, bd, col, style = '';
+      if (scored) { bg='rgba(99,230,190,0.16)'; bd='#63e6be'; col='#63e6be'; }
+      else if (dead) { bg='rgba(255,255,255,0.02)'; bd='var(--border)'; col='var(--muted)'; style='opacity:0.45;text-decoration:line-through;'; }
+      else { bg='rgba(255,255,255,0.04)'; bd='rgba(255,255,255,0.28)'; col='var(--text)'; }
+      return `<span style="display:inline-flex;gap:5px;align-items:baseline;padding:4px 9px;border-radius:20px;font-size:12px;background:${bg};border:1px solid ${bd};color:${col};${style}">${escHtml(t)}${scored?`<span style="color:#63e6be;font-weight:700;">+${r.pts}</span>`:''}</span>`;
+    }).join('');
+    return `<div style="margin-bottom:12px;">
+      <div style="font-size:12px;color:var(--yellow);margin-bottom:6px;">${r.label} <span style="color:var(--muted);font-size:10px;">(${r.pts}p/lag)</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">${chips}</div>
+    </div>`;
+  }).join('');
+
+  return `<p class="section-title">Slutspelsträd per deltagare</p>
+    ${selector}
+    <div style="display:flex;gap:16px;font-size:11px;color:var(--muted);margin-bottom:12px;flex-wrap:wrap;">
+      <span><span style="color:#63e6be;">●</span> gav poäng</span>
+      <span><span style="color:rgba(255,255,255,0.7);">●</span> lever än</span>
+      <span style="opacity:0.5;"><span>●</span> utslaget</span>
+      <span style="margin-left:auto;color:#63e6be;">Avancemang: ${totalScored}p</span>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem 1.1rem;margin-bottom:16px;">${roundBlocks}</div>`;
+}
+
 function koRoundLabel(num) {
   const r = KO_ROUNDS.find(r => r.matches.includes(num));
   return r ? r.label : '';
@@ -2215,6 +2272,7 @@ function renderSlutspel() {
 
   return `<p class="section-title">Slutspel</p>
     ${renderAdvancementResults()}
+    ${renderKoTree()}
     ${block('Ensam om sin världsmästare 🏆', uniqueRows(uniqueChamp))}
     ${block('Ensam om en finalist', uniqueRows(uniqueFin))}
     ${block('Mest mot strömmen i slutspelet <span style="color:var(--muted);font-weight:400;font-size:11px;">(gult = avvikande lag)</span>', devRows)}
