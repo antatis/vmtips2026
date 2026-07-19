@@ -530,7 +530,7 @@
 
 </div>
 
-<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.39</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
+<footer>Grabbarnas VM-tips 2026 &nbsp;·&nbsp; <span id="versionTag" onclick="toggleAdmin()" style="cursor:default;">v1.46</span> &nbsp;·&nbsp; <span id="lastUpdated"></span></footer>
 <div class="sweden-stripe"></div>
 
 <script>
@@ -1445,7 +1445,7 @@ function renderChart() {
 // ── Maratontabell ──────────────────────────────────────────────
 const MARATHON_YEARS = [2012, 2014, 2016, 2018, 2020, 2024];
 const MARATHON_WINNERS = ['Rostedt','Grabben','Holm','Levin','Åke','Alexander S'];
-const YEAR_WINNERS = {2012:'Levin', 2014:'Grabben', 2016:'Alexander S', 2018:'Holm', 2020:'Rostedt', 2024:'Åke'};
+const YEAR_WINNERS = {2012:'Levin', 2014:'Grabben', 2016:'Alexander S', 2018:'Holm', 2020:'Rostedt', 2024:'Åke', 2026:'Rostedt'};
 const MARATHON_RAW = [
   { name:'Ponk',        y:{2012:12,2014:9, 2016:8, 2018:10,2020:13,2024:16} },
   { name:'Rostedt',     y:{2012:6, 2014:11,2016:7, 2018:14,2020:20,2024:6 } },
@@ -1496,7 +1496,8 @@ function selectYear(y) {
   setTimeout(initScrollHint, 50);
 }
 
-function hasWon(name) { return MARATHON_WINNERS.includes(name); }
+function winCount(name) { return Object.values(YEAR_WINNERS).filter(w => w === name).length; }
+function hasWon(name) { return winCount(name) > 0; }
 
 function getTotal(p, incl2026) {
   let sum = Object.entries(p.y).reduce((s,[y,v]) => s + (v||0), 0);
@@ -1560,7 +1561,7 @@ function renderMarathon() {
     const isSelected = p.name === selectedPlayer;
     return `<tr onclick="selectPlayer('${p.name}')" style="border-bottom:1px solid var(--border);background:${isSelected?'rgba(255,230,32,0.04)':'transparent'};box-shadow:${p.rank===1?'inset 3px 0 0 #FFE620':'none'};cursor:pointer;">
       <td style="padding:10px 16px;font-family:'Bebas Neue',sans-serif;font-size:1.2rem;color:${p.rank<=3?'var(--yellow)':'var(--muted)'};width:32px;text-align:center;background:transparent;">${p.rank===1?'🥇':p.rank===2?'🥈':p.rank===3?'🥉':p.rank}</td>
-      <td style="padding:10px 12px;font-size:14px;white-space:nowrap;">${p.name}${won?' 🏆':''}</td>
+      <td style="padding:10px 12px;font-size:14px;white-space:nowrap;">${p.name}${winCount(p.name) ? ' ' + '🏆'.repeat(winCount(p.name)) : ''}</td>
       ${yearCells}
       <td style="padding:10px 16px;font-family:'Bebas Neue',sans-serif;font-size:1.3rem;color:var(--yellow);text-align:right;">${total}</td>
     </tr>`;
